@@ -1,0 +1,20 @@
+# Configures pytest so that the flat modules at the repository root
+# (ag4sby.py, cell_io.py, delay_cells.py, logger.py) are importable from
+# tests/ without any sys.path manipulation in the test files.
+#
+# Run the suite from the repository root:  pytest
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+# Declared explicitly so this file is unambiguously ruff's config root.
+# `line-length` matches ruff's default; `target-version` is the interpreter
+# the project runs on (the code needs >= 3.10 for its runtime-evaluated
+# `X | Y` annotations).
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+# Ruff's default rule set, spelled out rather than left implicit.
+select = ["E4", "E7", "E9", "F"]

@@ -1,2 +1,7 @@
 __pycache__
 .ruff*
+.venv
+.pytest_cache
+*.svg
+*.dot
+a.out
