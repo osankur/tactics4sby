@@ -1,4 +1,4 @@
-module top (
+module main (
     clk,
     x,
     z
@@ -20,11 +20,11 @@ module top (
       .y  (y)
   );
   always_comb begin
-    pure_assume1 : assume (x > 0);
-    pure_acyclic_assert1 : assert (z >= 2);
-    nonpure_assume1 : assume (x > y1);
-    nonpure_assume2 : assume (undriven2);
-    nonpure_acyclic_assert1 : assert (z >= 2 && undriven1);
+    top_assumption1 : assume (x > 0);
+    top_property1 : assert (z >= 2);
+    top_assumption2 : assume (x > y1);
+    top_assumption3 : assume (undriven2);
+    top_property2 : assert (z >= 2 && undriven1);
     z = (y < 13) ? y : y - 2;
   end
 endmodule
@@ -41,8 +41,8 @@ module subm (
     subm_assert1 : assert (y >= 2);
   end
   always_ff @(posedge clk) begin
-    subm_assume1 : assume (y > 0);
     z <= (z < 15) ? z + 1 : z;
+    subm_assume1 : assume (y > 0);
     subm_assert2 : assert (y >= 2 && z > 0);
   end
 endmodule

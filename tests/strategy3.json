@@ -1,0 +1,45 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv module_dep1.sv"
+    ],
+    "objectives": [
+      {
+        "top": "main",
+        "assertions": [
+          "pure_acyclic_assert1"
+        ],
+        "assumptions": [
+          "pure_assume1"
+        ],
+        "tactic": {
+          "name": "assume_guarantee",
+          "instances": [
+            {
+              "name": "s1",
+              "inline": true
+            },
+            {
+              "name": "s2",
+              "tactic": {
+                "name": "split",
+                "split_expression": "y1 > 2",
+                "case_true": {
+                  "name": "assume_guarantee",
+                  "submodules": [
+                    {
+                      "name": "subm",
+                      "assertions": [
+                        "subm_assert1"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

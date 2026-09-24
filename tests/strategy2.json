@@ -1,0 +1,42 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv module_dep1.sv"
+    ],
+    "objectives": [
+      {
+        "top": "main",
+        "assertions": [
+          "pure_acyclic_assert1"
+        ],
+        "assumptions": [
+          "pure_assume1"
+        ],
+        "early-assert": true,
+        "early-assume": true,
+        "tactic": {
+          "name": "assume_guarantee",
+          "submodules": [
+            {
+              "name": "subm",
+              "assertions": [
+                "subm_assert1"
+              ],
+              "assumptions": [
+                "subm_assume1"
+              ]
+            }
+          ],
+          "instances": [
+            {
+              "name": "s1"
+            },
+            {
+              "name": "s2"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

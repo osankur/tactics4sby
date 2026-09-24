@@ -7,7 +7,7 @@ from logger import logger, setup_logging
 from pyosys import libyosys as ys  # type: ignore
 
 MODULE_DEP1_SV = Path(__file__).resolve().parent / "module_dep1.sv"
-TOP = "top"
+TOP = "main"
 
 
 def test_contract():
@@ -23,7 +23,7 @@ def test_contract():
     assert "$assume" in types, "no assume cells left after design prep"
     assert "$assert" in types, "no assert cells left after design prep"
 
-    graph = ag4sby.CellGraph(top, design)
+    graph = ag4sby.CellGraph(top)
     deps = graph.get_module_dependency_graph()
     s1 = top.cells_["\\s1"]
     s2 = top.cells_["\\s2"]
