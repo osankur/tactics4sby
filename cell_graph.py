@@ -12,7 +12,13 @@ import proof_strategy
 
 workdir: str = tempfile.gettempdir()
 
-def make_model(read_commands: tuple[str,...], top: str, opt_multiclock: bool, verbose : bool = False) -> ys.Design:
+
+def make_model(
+    read_commands: tuple[str, ...],
+    top: str,
+    opt_multiclock: bool,
+    verbose: bool = False,
+) -> ys.Design:
     global workdir
     modeldir = Path(workdir) / "model"
     modeldir.mkdir(exist_ok=True)
@@ -53,15 +59,17 @@ def make_model(read_commands: tuple[str,...], top: str, opt_multiclock: bool, ve
     ys.run_pass(f"read_rtlil {modeldir}/design_prep.il", design)
     return design
 
+
 Node = ys.Cell | ys.SigBit
+
 
 @dataclass
 class ModuleDependencyGraph:
-    deps : dict[ys.Cell, list[ys.Cell]]
+    deps: dict[ys.Cell, list[ys.Cell]]
 
     def get_topological_ordering(self) -> list[ys.Cell]:
-        """ Returns a best-effort topological ordering of the graph.
-            If the graph contains cycles, back edges during DFS are removed and reported as a warning.
+        """Returns a best-effort topological ordering of the graph.
+        If the graph contains cycles, back edges during DFS are removed and reported as a warning.
         """
         # successors[u] = { v | u -> v }, i.e. the cells that depend on u
         successors: dict[ys.Cell, set[ys.Cell]] = {v: set() for v in self.deps}
@@ -80,7 +88,9 @@ class ModuleDependencyGraph:
                 if state.get(succ, 0) == 1:
                     # back edge: succ is an ancestor of node on the DFS stack
                     removed.add((node, succ))
-                    logger.warning(f"Removing submodule dependency {node.name} -> {succ.name} for applying assume-guarantee rule")
+                    logger.warning(
+                        f"Removing submodule dependency {node.name} -> {succ.name} for applying assume-guarantee rule"
+                    )
                 elif state.get(succ, 0) == 0:
                     _visit(succ)
             state[node] = 2
@@ -115,7 +125,7 @@ class CellGraph:
     _sigmap: ys.SigMap
 
     _module_dependencies: dict[ys.Cell, set[ys.Cell]] | None
-    _module_contract_mask : proof_strategy.ModuleContract
+    _module_contract_mask: proof_strategy.ModuleContract
 
     #: fill/line colours used for the node kinds of the .dot export
     _DOT_NODE_STYLES: dict[str, str] = {
@@ -151,7 +161,7 @@ class CellGraph:
         }
 
     def get_predecessors(self, node: Node) -> Iterator[Node]:
-        """ Iterates over all cell and sigbits entering this node """
+        """Iterates over all cell and sigbits entering this node"""
         if isinstance(node, ys.Cell):
             for _, sigbit in cell_input_bits(node):
                 yield sigbit
@@ -194,17 +204,25 @@ class CellGraph:
         for node in nodes:
             yield from _visit(node)
 
-    def get_module_dependency_graph(self, participating_instances : None | set[str] = None) -> ModuleDependencyGraph:
-        """ Return the dependency graph between submodule instances and asserts.
-            Restrict the assume and asserts to the given tuples when not None.
+    def get_module_dependency_graph(
+        self, participating_instances: None | set[str] = None
+    ) -> ModuleDependencyGraph:
+        """Return the dependency graph between submodule instances and asserts.
+        Restrict the assume and asserts to the given tuples when not None.
 
-            ``participating_instances`` is an optional set of submodule instance names (without backslash) to consider.
+        ``participating_instances`` is an optional set of submodule instance names (without backslash) to consider.
         """
         if participating_instances is None:
             instance_cells = self.submodule_instance_cells
         else:
-            participating_instances = set(f"\\{name}" for name in participating_instances)
-            instance_cells = set(cell for cell in self.submodule_instance_cells if cell.name in participating_instances)
+            participating_instances = set(
+                f"\\{name}" for name in participating_instances
+            )
+            instance_cells = set(
+                cell
+                for cell in self.submodule_instance_cells
+                if cell.name in participating_instances
+            )
         deps = dict()
         for cell in itertools.chain(instance_cells, self.assert_cells):
             # Get the sigbits of input signals of cell (discard if not a wire)
@@ -218,7 +236,7 @@ class CellGraph:
                 for sigbit_vector in filter(lambda li: li, input_sigspecs)
                 for item in sigbit_vector
             ]
-            cell_deps:list[ys.Cell] = list(
+            cell_deps: list[ys.Cell] = list(
                 self._visit_backwards(
                     flattened_input_sigspecs,
                     collect=lambda node: node in instance_cells,
@@ -259,7 +277,11 @@ class CellGraph:
 
         dependencies = self.get_module_dependency_graph()
 
-        nodes = {cell for cell, deps in dependencies.deps.items() for cell in itertools.chain(deps,[cell])}
+        nodes = {
+            cell
+            for cell, deps in dependencies.deps.items()
+            for cell in itertools.chain(deps, [cell])
+        }
         columns: dict[str, list[ys.Cell]] = {"assume": [], "module": [], "assert": []}
         for cell in sorted(nodes, key=lambda cell: str(cell.name)):
             columns[_dot_kind(cell)].append(cell)
@@ -301,6 +323,8 @@ class CellGraph:
         logger.info("Wrote module dependency graph to %s", file)
 
 
-def get_cell_graphs(read_commands : tuple[str,...], top : str, opt_multiclock : bool) -> dict[str,CellGraph]:
-    design:ys.Design = make_model(read_commands, top, opt_multiclock)
-    return { str(top) : CellGraph(design.module(f"\\{top}")) for top in design.modules_}
+def get_cell_graphs(
+    read_commands: tuple[str, ...], top: str, opt_multiclock: bool
+) -> dict[str, CellGraph]:
+    design: ys.Design = make_model(read_commands, top, opt_multiclock)
+    return {str(top): CellGraph(design.module(f"\\{top}")) for top in design.modules_}

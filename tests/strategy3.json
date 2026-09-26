@@ -6,34 +6,22 @@
     "objectives": [
       {
         "top": "main",
-        "assertions": [
-          "pure_acyclic_assert1"
-        ],
-        "assumptions": [
-          "pure_assume1"
-        ],
         "tactic": {
           "name": "assume_guarantee",
+          "inline": [
+            "s1"
+          ],
           "instances": [
+            "s2"
+          ],
+          "submodules": [
             {
-              "name": "s1",
-              "inline": true
-            },
-            {
-              "name": "s2",
+              "top": "subm",
               "tactic": {
                 "name": "split",
                 "split_expression": "y1 > 2",
                 "case_true": {
-                  "name": "assume_guarantee",
-                  "submodules": [
-                    {
-                      "name": "subm",
-                      "assertions": [
-                        "subm_assert1"
-                      ]
-                    }
-                  ]
+                  "name": "assume_guarantee"
                 }
               }
             }

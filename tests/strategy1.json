@@ -5,51 +5,31 @@
     ],
     "objectives": [
       {
-        "top": "main",
-        "assertions": [
-          "top_sanity_check"
-        ]
+        "top": "main"
       },
       {
         "top": "main",
-        "assertions": [
-          "top_property1",
-          "top_property2"
-        ],
-        "assumptions": [
-          "top_assumption1"
-        ],
         "tactic": {
           "name": "assume_guarantee",
           "submodules": [
             {
-              "name": "subm",
+              "top": "subm",
               "tactic": {
                 "name": "assume_guarantee",
                 "submodules": [
                   {
-                    "name": "subsubm"
+                    "top": "subsubm"
                   }
                 ]
               }
             }
           ],
+          "inline": [
+            "s1"
+          ],
           "instances": [
-            {
-              "name": "s1",
-              "inline": true
-            },
-            {
-              "name": "s3",
-              "tactic": {
-                "name": "split",
-                "split_expression": "x",
-                "case_true": {
-                  "name": "split",
-                  "split_expression": "y < 3"
-                }
-              }
-            }
+            "s2",
+            "s3"
           ]
         }
       }

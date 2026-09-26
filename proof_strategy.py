@@ -16,7 +16,6 @@ __all__ = [
     "Tactic",
     "AssumeGuaranteeTactic",
     "SplitTactic",
-    "Instance",
     "Objective",
     "ProofStrategy",
     "parse_file",
@@ -62,21 +61,6 @@ class Tactic:
 
 
 @dataclass(frozen=True, kw_only=True)
-class Instance:
-    """Strategy for proving the soundness of submodule instances in an assume_guarantee tactic
-    (the corresponding VC proves that the parent module ensures the assumptions of the submodule).
-
-    ``inline`` means the instance is inlined and does not participate in the
-    assume-guarantee proof (in which case ``tactic`` must be ``None``).
-    """
-
-    name: str
-    inline: bool = False
-    tactic: Tactic | None = None
-    json_path: str = field(default="", compare=False)
-
-
-@dataclass(frozen=True, kw_only=True)
 class AssumeGuaranteeTactic(Tactic):
     """Acyclic assume-guarantee decomposition.
 
@@ -84,12 +68,22 @@ class AssumeGuaranteeTactic(Tactic):
     modules instantiated in the current top module"; otherwise a non-empty
     dict keyed by submodule name (the objective's ``top``, pairwise distinct),
     each value an :class:`Objective` -- each submodule is proven as a top
-    module in its own right.  ``instances`` lists the per-instance
-    verification conditions (possibly empty).
+    module in its own right.
+
+    ``auto`` selects how the instances are ordered.  When true (the default)
+    the order is computed automatically, ``instances`` (if given) restricts
+    which instances take part, and ``inline`` names the instances to inline.
+    When false ``instances`` gives the order explicitly and every instance not
+    listed is inlined.
+
+    ``instances`` is ``None`` when the field is absent.  In manual mode
+    (``auto`` false) it is required, so it is never ``None`` there.
     """
 
     submodules: dict[str, Objective] | None = None
-    instances: tuple[Instance, ...] = ()
+    auto: bool = True
+    instances: tuple[str, ...] | None = None
+    inline: tuple[str, ...] = ()
 
     name: ClassVar[str] = "assume_guarantee"
 
@@ -117,8 +111,8 @@ class Objective:
     ``name`` is an optional user-supplied label identifying the objective (for
     logs and error messages); it has no semantic effect.
 
-    ``assertions`` / ``assumptions`` are allow-lists referring to the ``top``
-    module only (never its submodules); ``None`` means "all".  ``tactic`` is
+    The contract of the objective's ``top`` module is *all* of its assertions
+    and assumptions; there is no way to select a subset.  ``tactic`` is
     ``None`` for a leaf objective, proven directly.
 
     ``early_assume`` / ``early_assert`` are only settable on a top-level
@@ -131,8 +125,6 @@ class Objective:
     name: str | None = None
     early_assume: bool = False
     early_assert: bool = False
-    assertions: tuple[str, ...] | None = None
-    assumptions: tuple[str, ...] | None = None
     tactic: Tactic | None = None
     json_path: str = field(default="", compare=False)
 
@@ -162,15 +154,11 @@ _OBJECTIVE_OPTIONAL = (
     "name",
     "early-assume",
     "early-assert",
-    "assertions",
-    "assumptions",
     "tactic",
 )
 #: Nested objectives (submodule contracts) may not set the early flags: they
 #: are inherited from the top-level objective.
-_NESTED_OBJECTIVE_OPTIONAL = ("name", "assertions", "assumptions", "tactic")
-_INSTANCE_REQUIRED = ("name",)
-_INSTANCE_OPTIONAL = ("inline", "tactic")
+_NESTED_OBJECTIVE_OPTIONAL = ("name", "tactic")
 _PROOF_STRATEGY_REQUIRED = ("header", "objectives")
 _PROOF_STRATEGY_OPTIONAL = ()
 _TOP_REQUIRED = ("proof_strategy",)
@@ -179,7 +167,7 @@ _TOP_OPTIONAL = ("$schema",)
 #: Per tactic name: the keys it requires, and the keys it additionally tolerates.
 #: 'name' is required by every tactic and is listed in the required tuple.
 _TACTIC_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "assume_guarantee": (("name",), ("submodules", "instances")),
+    "assume_guarantee": (("name",), ("submodules", "auto", "instances", "inline")),
     "split": (("name", "split_expression"), ("case_false", "case_true")),
 }
 
@@ -248,14 +236,6 @@ class _Parser:
             self._err(path, "must not be an empty array")
         return items
 
-    def _optional_string_list(
-        self, obj: dict[str, Any], key: str, path: str, *, allow_empty: bool = True
-    ) -> tuple[str, ...] | None:
-        """Parse an optional array-of-strings key.  Absent or ``null`` -> ``None``."""
-        if obj.get(key) is None:
-            return None
-        return self._string_list(obj[key], f"{path}.{key}", allow_empty=allow_empty)
-
     def _check_distinct(self, names: list[str], path: str, what: str) -> None:
         seen: set[str] = set()
         for name in names:
@@ -323,12 +303,6 @@ class _Parser:
             if obj.get("name") is not None
             else None
         )
-        assertions = self._optional_string_list(
-            obj, "assertions", path, allow_empty=False
-        )
-        assumptions = self._optional_string_list(
-            obj, "assumptions", path, allow_empty=False
-        )
 
         tactic: Tactic | None = None
         if obj.get("tactic") is not None:
@@ -344,8 +318,6 @@ class _Parser:
             name=name,
             early_assume=early_assume,
             early_assert=early_assert,
-            assertions=assertions,
-            assumptions=assumptions,
             tactic=tactic,
             json_path=path,
         )
@@ -434,16 +406,39 @@ class _Parser:
                 early_assume=early_assume,
                 early_assert=early_assert,
             )
-        instances: tuple[Instance, ...] = ()
+
+        auto = self._bool(obj["auto"], f"{path}.auto") if "auto" in obj else True
+
+        instances: tuple[str, ...] | None = None
         if obj.get("instances") is not None:
-            instances = self._instance_list(
-                obj["instances"],
-                f"{path}.instances",
-                early_assume=early_assume,
-                early_assert=early_assert,
+            instances = self._string_list(
+                obj["instances"], f"{path}.instances", allow_empty=False
             )
+            self._check_distinct(list(instances), f"{path}.instances", "instance")
+        elif not auto:
+            self._err(
+                path,
+                "'instances' is required when 'auto' is false: it gives the "
+                "order in which the instances are considered",
+            )
+
+        inline: tuple[str, ...] = ()
+        if obj.get("inline") is not None:
+            if not auto:
+                self._err(
+                    f"{path}.inline",
+                    "'inline' is only allowed when 'auto' is true; in manual "
+                    "mode every instance not listed in 'instances' is inlined",
+                )
+            inline = self._string_list(obj["inline"], f"{path}.inline")
+            self._check_distinct(list(inline), f"{path}.inline", "inline instance")
+
         return AssumeGuaranteeTactic(
-            submodules=submodules, instances=instances, json_path=path
+            submodules=submodules,
+            auto=auto,
+            instances=instances,
+            inline=inline,
+            json_path=path,
         )
 
     def _submodule_list(
@@ -476,60 +471,12 @@ class _Parser:
             submodules[objective.top] = objective
         return submodules
 
-    def _instance_list(
-        self,
-        value: Any,
-        path: str,
-        *,
-        early_assume: bool,
-        early_assert: bool,
-    ) -> tuple[Instance, ...]:
-        if not isinstance(value, list):
-            self._err(path, f"expected an array of instances, got {type(value)}")
-        vcs = tuple(
-            self.instance(
-                item,
-                f"{path}[{index}]",
-                early_assume=early_assume,
-                early_assert=early_assert,
-            )
-            for index, item in enumerate(value)
-        )
-        self._check_distinct([vc.name for vc in vcs], path, "instance")
-        return vcs
-
     def _require_nonempty_list(self, value: Any, path: str) -> list[Any]:
         if not isinstance(value, list):
             self._err(path, f"expected an array, got {type(value)}")
         if not value:
             self._err(path, "must not be an empty array (omit it for 'all')")
         return value
-
-    def instance(
-        self,
-        value: Any,
-        path: str,
-        *,
-        early_assume: bool,
-        early_assert: bool,
-    ) -> Instance:
-        obj = self._object(value, path)
-        self._check_keys(obj, path, _INSTANCE_REQUIRED, _INSTANCE_OPTIONAL)
-        name = self._string(obj["name"], f"{path}.name")
-        inline = (
-            self._bool(obj["inline"], f"{path}.inline") if "inline" in obj else False
-        )
-        tactic: Tactic | None = None
-        if obj.get("tactic") is not None:
-            if inline:
-                self._err(path, "an inlined instance must not carry a tactic")
-            tactic = self.tactic(
-                obj["tactic"],
-                f"{path}.tactic",
-                early_assume=early_assume,
-                early_assert=early_assert,
-            )
-        return Instance(name=name, inline=inline, tactic=tactic, json_path=path)
 
     def document(self, value: Any, source: Path | None) -> ProofStrategy:
         root = self._object(value, "<root>")
@@ -603,19 +550,6 @@ def parse_file(path: str | Path) -> ProofStrategy:
 # --------------------------------------------------------------------------- #
 
 
-def _describe_selection(
-    assertions: tuple[str, ...] | None,
-    assumptions: tuple[str, ...] | None,
-    lines: list[str],
-    indent: int,
-) -> None:
-    pad = "  " * indent
-    if assertions is not None:
-        lines.append(f"{pad}assertions={list(assertions)}")
-    if assumptions is not None:
-        lines.append(f"{pad}assumptions={list(assumptions)}")
-
-
 def _describe_objective_label(objective: Objective) -> str:
     """A submodule/objective label: 'name' (top) when named, else just top."""
     return (
@@ -634,16 +568,17 @@ def _describe_tactic(tactic: Tactic, lines: list[str], indent: int) -> None:
             lines.append(f"{pad}  submodules:")
             for sub in tactic.submodules.values():
                 lines.append(f"{pad}    - {_describe_objective_label(sub)}")
-                _describe_selection(sub.assertions, sub.assumptions, lines, indent + 3)
                 if sub.tactic is not None:
                     _describe_tactic(sub.tactic, lines, indent + 3)
-        if tactic.instances:
-            lines.append(f"{pad}  instances:")
-            for inst in tactic.instances:
-                flag = " (inline)" if inst.inline else ""
-                lines.append(f"{pad}    - {inst.name}{flag}")
-                if inst.tactic is not None:
-                    _describe_tactic(inst.tactic, lines, indent + 3)
+        if tactic.auto:
+            lines.append(f"{pad}  auto: true")
+            if tactic.instances is not None:
+                lines.append(f"{pad}  instances: {list(tactic.instances)}")
+            if tactic.inline:
+                lines.append(f"{pad}  inline: {list(tactic.inline)}")
+        else:
+            lines.append(f"{pad}  auto: false (manual order)")
+            lines.append(f"{pad}  instances: {list(tactic.instances or ())}")
     elif isinstance(tactic, SplitTactic):
         lines.append(f"{pad}tactic: split on {tactic.split_expression}")
         for label, case in (
@@ -672,41 +607,8 @@ def _summarise(strategy: ProofStrategy) -> str:
         suffix = f" [{', '.join(flags)}]" if flags else ""
         label = f"{objective.name!r} " if objective.name else ""
         lines.append(f"  - {label}top={objective.top}{suffix}")
-        _describe_selection(objective.assertions, objective.assumptions, lines, 2)
         if objective.tactic is not None:
             _describe_tactic(objective.tactic, lines, 2)
         else:
             lines.append("    tactic: none (prove directly)")
     return "\n".join(lines)
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Parse a proof strategy file and print a summary of it."""
-    parser = argparse.ArgumentParser(
-        prog="proof_strategy",
-        usage="%(prog)s [options] <strategy.json>",
-        description="Parse a proof strategy JSON file and print a summary.",
-    )
-    parser.add_argument("strategy", help="path to the proof strategy JSON file")
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="count",
-        default=0,
-        dest="verbosity",
-        help="Increase verbosity: -v info, -vv debug",
-    )
-    args = parser.parse_args(argv)
-    setup_logging(verbosity=args.verbosity)
-
-    try:
-        strategy = parse_file(args.strategy)
-    except ProofStrategyError as exc:
-        logger.error("%s", exc)
-        return 1
-    print(_summarise(strategy))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

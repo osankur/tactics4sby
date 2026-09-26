@@ -1,22 +1,24 @@
+import sys
 import argparse
 from logger import logger, setup_logging
-from pathlib import Path
 import proof_strategy
 
-def parser_func() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ag4sby", usage="%(prog)s [<filename>]+")
-    parser.set_defaults(exe_paths=dict())
-    parser.add_argument("filenames", nargs="+", help="list of input file names")
-    parser.add_argument(
-        "-top", dest="top", required=True, help="Name of the top module"
+
+def main(argv: list[str] | None = None) -> int:
+    """Parse a proof strategy file and print a summary of it."""
+    parser = argparse.ArgumentParser(
+        prog="proof_strategy",
+        usage="%(prog)s [options] <strategy.json>",
+        description="Parse a proof strategy JSON file and print a summary.",
     )
+    parser.add_argument("strategy", help="path to the proof strategy JSON file")
     parser.add_argument(
         "-v",
         "--verbose",
         action="count",
         default=0,
         dest="verbosity",
-        help="Increase verbosity: -v info, -vv debug, -vvv trace",
+        help="Increase verbosity: -v info, -vv debug",
     )
     parser.add_argument(
         "--log-file",
@@ -44,18 +46,20 @@ def parser_func() -> argparse.ArgumentParser:
         dest="force",
         help="remove workdir if it already exists",
     )
-    return parser
-
-
-if __name__ == "__main__":
-    parser: argparse.ArgumentParser = parser_func()
-    args: argparse.Namespace = parser.parse_args()
+    args = parser.parse_args(argv)
     setup_logging(
         verbosity=args.verbosity,
         log_file=args.log_file,
         use_color=args.log_color,
     )
-    # g = get_cell_graphs(args.filenames, args.top, args.opt_multiclock)
-    # deps = g.get_module_dependency_graph()
-    # g.write_module_dependencies_to_dot(Path("/tmp/a.dot"))
-    # g.print_module_dependencies()
+    try:
+        strategy = proof_strategy.parse_file(args.strategy)
+    except Exception as exc:
+        logger.error("%s", exc)
+        return 1
+    print(proof_strategy._summarise(strategy))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
