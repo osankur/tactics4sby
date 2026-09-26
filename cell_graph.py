@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from collections.abc import Iterator
 import itertools
@@ -8,7 +10,93 @@ from cell_io import cell_input_bits, cell_output_bits
 from logger import logger
 import proof_strategy
 
+workdir: str = tempfile.gettempdir()
+
+def make_model(read_commands: tuple[str,...], top: str, opt_multiclock: bool, verbose : bool = False) -> ys.Design:
+    global workdir
+    modeldir = Path(workdir) / "model"
+    modeldir.mkdir(exist_ok=True)
+
+    with open(modeldir / "design_prep.ys", "w") as f:
+        for cmd in read_commands:
+            print(cmd, file=f)
+        print(f"hierarchy -smtcheck -top {top}", file=f)
+        print("prep", file=f)
+        print("scc -select; simplemap; select -clear", file=f)
+        print("memory_nordff", file=f)
+        if opt_multiclock:
+            print("clk2fflogic", file=f)
+        else:
+            print("async2sync", file=f)
+        print("opt_clean", file=f)
+        print("formalff -setundef -clk2ff -ff2anyinit -hierarchy", file=f)
+        # we only keep assume and asserts
+        print("chformal -live -fair -cover -remove", file=f)
+        print("opt_clean", file=f)
+        print("check", file=f)  # can't detect undriven wires past this point
+        print("setundef -undriven -anyseq", file=f)
+        print("opt -fast", file=f)
+        print("rename -witness", file=f)
+        print("opt_clean", file=f)
+        if verbose:
+            print(f"write_rtlil {modeldir}/design_prep.il", file=f)
+            print(f"select -module \\{top}", file=f)
+            print("show -format svg -prefix design_prep -stretch", file=f)
+
+    subprocess.run(
+        ["yosys", "-s", str(modeldir / "design_prep.ys")],
+        stdout=None if verbose else subprocess.DEVNULL,
+        stderr=None if verbose else subprocess.DEVNULL,
+        check=True,
+    )
+    design = ys.Design()
+    ys.run_pass(f"read_rtlil {modeldir}/design_prep.il", design)
+    return design
+
 Node = ys.Cell | ys.SigBit
+
+@dataclass
+class ModuleDependencyGraph:
+    deps : dict[ys.Cell, list[ys.Cell]]
+
+    def get_topological_ordering(self) -> list[ys.Cell]:
+        """ Returns a best-effort topological ordering of the graph.
+            If the graph contains cycles, back edges during DFS are removed and reported as a warning.
+        """
+        # successors[u] = { v | u -> v }, i.e. the cells that depend on u
+        successors: dict[ys.Cell, set[ys.Cell]] = {v: set() for v in self.deps}
+        for v, preds in self.deps.items():
+            for u in preds:
+                successors.setdefault(u, set()).add(v)
+
+        # 0 = unvisited, 1 = on the DFS stack, 2 = finished
+        state: dict[ys.Cell, int] = {}
+        postorder: list[ys.Cell] = []
+        removed: set[tuple[ys.Cell, ys.Cell]] = set()
+
+        def _visit(node: ys.Cell):
+            state[node] = 1
+            for succ in successors[node]:
+                if state.get(succ, 0) == 1:
+                    # back edge: succ is an ancestor of node on the DFS stack
+                    removed.add((node, succ))
+                    logger.warning(f"Removing submodule dependency {node.name} -> {succ.name} for applying assume-guarantee rule")
+                elif state.get(succ, 0) == 0:
+                    _visit(succ)
+            state[node] = 2
+            postorder.append(node)
+
+        for node in successors:
+            if state.get(node, 0) == 0:
+                _visit(node)
+
+        # self.deps = {
+        #     v: [u for u in preds if (u, v) not in removed]
+        #     for v, preds in self.deps.items()
+        # }
+        postorder.reverse()
+        return postorder
+
 
 class CellGraph:
     """
@@ -19,14 +107,11 @@ class CellGraph:
     from an output of cell c to an input of cell c'.
     """
 
-    contract_assume_cells: list[ys.Cell]
-    contract_assert_cells: list[ys.Cell]
-
-    _topmodule: ys.Module
+    topmodule: ys.Module
     _sigbit_to_driver_cell: dict[ys.SigBit, ys.Cell]
-    _assume_cells: set[ys.Cell]
-    _assert_cells: set[ys.Cell]
-    _submodule_cells: set[ys.Cell]
+    assume_cells: set[ys.Cell]
+    assert_cells: set[ys.Cell]
+    submodule_instance_cells: set[ys.Cell]
     _sigmap: ys.SigMap
 
     _module_dependencies: dict[ys.Cell, set[ys.Cell]] | None
@@ -40,23 +125,23 @@ class CellGraph:
     }
 
     def __init__(self, top_module: ys.Module):
-        self._top_module = top_module
+        self.top_module = top_module
 
         # All assume cells of top_module
-        self._assume_cells = set()
+        self.assume_cells = set()
         # All assert cells of top_module
-        self._assert_cells = set()
-        self._submodule_cells = set()
+        self.assert_cells = set()
+        self.submodule_instance_cells = set()
         self._module_dependencies = None
         self._module_contract_mask = proof_strategy.ModuleContract()
         module_names = set(top_module.design.modules_.keys())
         for cell in top_module.cells_.values():
             if cell.type == "$assert":
-                self._assert_cells.add(cell)
+                self.assert_cells.add(cell)
             elif cell.type == "$assume":
-                self._assume_cells.add(cell)
+                self.assume_cells.add(cell)
             elif cell.type in module_names:
-                self._submodule_cells.add(cell)
+                self.submodule_instance_cells.add(cell)
 
         self._sigmap = ys.SigMap(top_module)
         self._sigbit_to_driver_cell = {
@@ -109,28 +194,19 @@ class CellGraph:
         for node in nodes:
             yield from _visit(node)
 
-    def get_module_dependency_graph(self, moduleContractMask = proof_strategy.ModuleContract()) -> dict[ys.Cell, set[ys.Cell]]:
+    def get_module_dependency_graph(self, participating_instances : None | set[str] = None) -> ModuleDependencyGraph:
         """ Return the dependency graph between submodule instances and asserts.
-            Restrict the assume and asserts to the given mask.
+            Restrict the assume and asserts to the given tuples when not None.
+
+            ``participating_instances`` is an optional set of submodule instance names (without backslash) to consider.
         """
-        if self._module_dependencies and self._module_contract_mask == moduleContractMask:
-            return self._module_dependencies
-
-        self._module_contract_mask = moduleContractMask
-        if moduleContractMask.assumes:
-            assert set(moduleContractMask.assumes).issubset(set(cell.name for cell in self._assume_cells))
-            self.contract_assume_cells = [cell for cell in self._assume_cells if cell.name in moduleContractMask.assumes]
+        if participating_instances is None:
+            instance_cells = self.submodule_instance_cells
         else:
-            self.contract_assume_cells = list(self._assume_cells)
-        
-        if moduleContractMask.asserts:
-            assert set(moduleContractMask.asserts).issubset(set(cell.name for cell in self._assert_cells))
-            self.contract_assert_cells = [cell for cell in self._assert_cells if cell.name in moduleContractMask.asserts]
-        else:
-            self.contract_assert_cells = list(self._assert_cells)
-
-        self._module_dependencies = dict()
-        for cell in itertools.chain(self._submodule_cells, self.contract_assert_cells):
+            participating_instances = set(f"\\{name}" for name in participating_instances)
+            instance_cells = set(cell for cell in self.submodule_instance_cells if cell.name in participating_instances)
+        deps = dict()
+        for cell in itertools.chain(instance_cells, self.assert_cells):
             # Get the sigbits of input signals of cell (discard if not a wire)
             input_sigspecs = [
                 list(conn.bits()) if conn.is_wire() else None
@@ -142,24 +218,22 @@ class CellGraph:
                 for sigbit_vector in filter(lambda li: li, input_sigspecs)
                 for item in sigbit_vector
             ]
-            deps = set(
+            cell_deps:list[ys.Cell] = list(
                 self._visit_backwards(
                     flattened_input_sigspecs,
-                    collect=lambda node: node in self._submodule_cells,
-                    stop_at=lambda node: node in self._submodule_cells,
+                    collect=lambda node: node in instance_cells,
+                    stop_at=lambda node: node in instance_cells,
                 )
             )
-            self._module_dependencies[cell] = deps
+            deps[cell] = cell_deps
 
-        return self._module_dependencies
+        return ModuleDependencyGraph(deps)
 
     def print_module_dependencies(self):
-        if not self._module_dependencies:
-            self.get_module_dependency_graph()
-        assert self._module_dependencies
-        for cell in self._module_dependencies:
+        g = self.get_module_dependency_graph()
+        for cell in g.deps:
             logger.info(f"{cell.name} depends on:")
-            for dep_cell in self._module_dependencies[cell]:
+            for dep_cell in g.deps[cell]:
                 logger.info(f"\t{dep_cell}")
 
     def write_module_dependencies_to_dot(self, file: Path):
@@ -173,9 +247,9 @@ class CellGraph:
 
         def _dot_kind(cell: ys.Cell) -> str:
             """Classify ``cell`` for the .dot export: assume, assert, or module."""
-            if cell in self._assume_cells:
+            if cell in self.assume_cells:
                 return "assume"
-            if cell in self._assert_cells:
+            if cell in self.assert_cells:
                 return "assert"
             return "module"
 
@@ -183,21 +257,19 @@ class CellGraph:
             """Return ``text`` as a quoted DOT identifier/label."""
             return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-        if not self._module_dependencies:
-            self.get_module_dependency_graph()
-        dependencies = self._module_dependencies or {}
+        dependencies = self.get_module_dependency_graph()
 
-        nodes = {cell for cell, deps in dependencies.items() for cell in deps | {cell}}
+        nodes = {cell for cell, deps in dependencies.deps.items() for cell in itertools.chain(deps,[cell])}
         columns: dict[str, list[ys.Cell]] = {"assume": [], "module": [], "assert": []}
         for cell in sorted(nodes, key=lambda cell: str(cell.name)):
             columns[_dot_kind(cell)].append(cell)
 
         lines = [
-            f"// module dependencies of {self._top_module.name}",
+            f"// module dependencies of {self.top_module.name}",
             "// generated by ag4sby; edge a -> b means: b depends on a",
             "digraph module_dependencies {",
             '\trankdir="LR";',
-            f"\tgraph [label={_dot_text(f'module dependencies of {self._top_module.name}')},"
+            f"\tgraph [label={_dot_text(f'module dependencies of {self.top_module.name}')},"
             ' labelloc="t", fontname="Helvetica"];',
             '\tnode [shape="box", style="rounded,filled", fontname="Helvetica"];',
             '\tedge [color="#616161"];',
@@ -217,8 +289,8 @@ class CellGraph:
                 lines.append(f"\t{name} [label={name}, {self._DOT_NODE_STYLES[kind]}];")
 
         lines.append("")
-        for cell in sorted(dependencies, key=lambda cell: str(cell.name)):
-            for dep in sorted(dependencies[cell], key=lambda cell: str(cell.name)):
+        for cell in sorted(dependencies.deps, key=lambda cell: str(cell.name)):
+            for dep in sorted(dependencies.deps[cell], key=lambda cell: str(cell.name)):
                 lines.append(
                     f"\t{_dot_text(str(dep.name))} -> {_dot_text(str(cell.name))};"
                 )
@@ -229,3 +301,6 @@ class CellGraph:
         logger.info("Wrote module dependency graph to %s", file)
 
 
+def get_cell_graphs(read_commands : tuple[str,...], top : str, opt_multiclock : bool) -> dict[str,CellGraph]:
+    design:ys.Design = make_model(read_commands, top, opt_multiclock)
+    return { str(top) : CellGraph(design.module(f"\\{top}")) for top in design.modules_}

@@ -28,7 +28,7 @@ def test_contract():
     s1 = top.cells_["\\s1"]
     s2 = top.cells_["\\s2"]
     assert s1 in deps[s2]
-    for cell in graph._assert_cells:
+    for cell in graph.assert_cells:
         cell in deps[s1]
         cell in deps[s2]
 
