@@ -13,11 +13,17 @@ import proof_strategy
 workdir: str = tempfile.gettempdir()
 
 
+def _strip_backslash(id) -> str:
+    assert id[0] == "\\", f"{id} does not start with a \\"
+    return str(id)[1:]
+
+
 def make_model(
     read_commands: tuple[str, ...],
     top: str,
     opt_multiclock: bool,
     verbose: bool = False,
+    dump_dot: bool = True,
 ) -> ys.Design:
     global workdir
     modeldir = Path(workdir) / "model"
@@ -44,10 +50,10 @@ def make_model(
         print("opt -fast", file=f)
         print("rename -witness", file=f)
         print("opt_clean", file=f)
-        if verbose:
-            print(f"write_rtlil {modeldir}/design_prep.il", file=f)
+        print(f"write_rtlil {modeldir}/{top}.il", file=f)
+        if dump_dot:
             print(f"select -module \\{top}", file=f)
-            print("show -format svg -prefix design_prep -stretch", file=f)
+            print(f"show -format svg -prefix {top} -stretch", file=f)
 
     subprocess.run(
         ["yosys", "-s", str(modeldir / "design_prep.ys")],
@@ -56,7 +62,7 @@ def make_model(
         check=True,
     )
     design = ys.Design()
-    ys.run_pass(f"read_rtlil {modeldir}/design_prep.il", design)
+    ys.run_pass(f"read_rtlil {modeldir}/{top}.il", design)
     return design
 
 
@@ -117,7 +123,8 @@ class CellGraph:
     from an output of cell c to an input of cell c'.
     """
 
-    topmodule: ys.Module
+    top_module: ys.Module
+    design: ys.Design
     _sigbit_to_driver_cell: dict[ys.SigBit, ys.Cell]
     assume_cells: set[ys.Cell]
     assert_cells: set[ys.Cell]
@@ -134,7 +141,8 @@ class CellGraph:
         "assert": 'fillcolor="#ffcdd2", color="#c62828"',  # red
     }
 
-    def __init__(self, top_module: ys.Module):
+    def __init__(self, top_module: ys.Module, design: ys.Design):
+        self.design = design
         self.top_module = top_module
 
         # All assume cells of top_module
@@ -152,7 +160,6 @@ class CellGraph:
                 self.assume_cells.add(cell)
             elif cell.type in module_names:
                 self.submodule_instance_cells.add(cell)
-
         self._sigmap = ys.SigMap(top_module)
         self._sigbit_to_driver_cell = {
             bit: cell
@@ -194,7 +201,7 @@ class CellGraph:
         def _visit(node: Node):
             if node not in visited:
                 visited.add(node)
-                logger.debug("visiting %s", self.string_of_node(node))
+                # logger.debug("visiting %s", self.string_of_node(node))
                 if collect(node):
                     yield node
                 if not stop_at(node):
@@ -215,13 +222,10 @@ class CellGraph:
         if participating_instances is None:
             instance_cells = self.submodule_instance_cells
         else:
-            participating_instances = set(
-                f"\\{name}" for name in participating_instances
-            )
             instance_cells = set(
                 cell
                 for cell in self.submodule_instance_cells
-                if cell.name in participating_instances
+                if str(cell.name)[1:] in participating_instances
             )
         deps = dict()
         for cell in itertools.chain(instance_cells, self.assert_cells):
@@ -324,7 +328,13 @@ class CellGraph:
 
 
 def get_cell_graphs(
-    read_commands: tuple[str, ...], top: str, opt_multiclock: bool
+    read_commands: tuple[str, ...],
+    top: str,
+    opt_multiclock: bool,
+    verbose: bool = False,
 ) -> dict[str, CellGraph]:
-    design: ys.Design = make_model(read_commands, top, opt_multiclock)
-    return {str(top): CellGraph(design.module(f"\\{top}")) for top in design.modules_}
+    design: ys.Design = make_model(read_commands, top, opt_multiclock, verbose)
+    return {
+        _strip_backslash(str(name)): CellGraph(module, design)
+        for name, module in design.modules_.items()
+    }

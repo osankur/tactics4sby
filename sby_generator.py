@@ -1,14 +1,13 @@
+import sys
+from typing import TextIO
 import copy
+import dataclasses
 from dataclasses import dataclass
 from logger import logger
 from collections import deque
 import proof_strategy
 import cell_graph
-
-
-def _strip_backslash(id) -> str:
-    assert id[0] == "\\"
-    return str(id)[1:]
+from cell_graph import _strip_backslash
 
 
 @dataclass
@@ -19,20 +18,30 @@ class SbyTask:
 
 @dataclass
 class SbyScript:
-    name: str
     strategy: proof_strategy.ProofStrategy
     verbose: bool = False
+    verbose_yosys: bool = False
 
     DEFAULT_OPTION = "mode prove"
     DEFAULT_ENGINE = "smtbmc"
 
-    tasks: list[SbyTask] = []
-    options: dict[str, list[str]] = {}
-    engine: dict[str, list[str]] = {}
-    script: list[tuple[str, list[str]]] = []
+    tasks: list[SbyTask] = dataclasses.field(default_factory=list)
+    options: dict[str, list[str]] = dataclasses.field(
+        default_factory=lambda: {"": [SbyScript.DEFAULT_OPTION]}
+    )
+    engine: dict[str, list[str]] = dataclasses.field(
+        default_factory=lambda: {"": [SbyScript.DEFAULT_ENGINE]}
+    )
+    script: list[tuple[str, list[str]]] = dataclasses.field(default_factory=list)
 
     # module contract proofs that have already been generated:
-    _processed_modules: set[str] = set()
+    _processed_modules: set[str] = dataclasses.field(default_factory=set)
+
+    # task and group names used so far
+    _task_and_group_names: set[str] = dataclasses.field(default_factory=set)
+
+    # maps each task to its dependencies (typically its verification conditions)
+    _task_dependencies: dict[str, list[str]] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
         if self.strategy.multiclock:
@@ -41,6 +50,19 @@ class SbyScript:
         while objective_queue:
             obj = objective_queue.popleft()
             objective_queue.extend(self.process_objective(obj))
+
+    def _get_task_or_group_name(self, name: str) -> str:
+        counter = 0
+        while name in self._task_and_group_names:
+            name = f"{name}_{counter}"
+            counter += 1
+        self._task_and_group_names.add(name)
+        return name
+
+    def add_task(self, task: str, groups: list[str], parent_tasks: list[str] = []):
+        self.tasks.append(SbyTask(task, groups))
+        for parent in parent_tasks:
+            self._task_dependencies.setdefault(parent, []).append(task)
 
     def _remove_noncontract_check_cells(
         self,
@@ -87,87 +109,102 @@ class SbyScript:
         """Generate tasks and subtasks for this objective, and return the list of objectives that appear in the subtree.
 
         Groups generated for the assume_guarantee tactic:
-        - objective_group: remove all submodule instances (except those inlined) by applying cutpoint on their outputs
-        - top_ag_group: flatten, then remove submodule assumptions, and convert their assertions into assumptions
-                        then prove the top module's contract
-        - inst_ag_common_group: remove all asserts of top module, then flatten
-        - inst_ag_group(*): focus on one instance; remove all other instances' assumptions, assume previous instances assertions,
-                            and remove next instances assertions; prove the current instance assumption
-
-        Added tasks are:
-        - top_ag_group objective_group
-        and for each instance `s`
-        - /inst_ag_group`s` objective_group inst_ag_common_group
+        - ``top``               : remove all submodule instances (except those inlined) by applying cutpoint on their outputs
+        - _vc_``top``_top       : flatten, then remove submodule assumptions, and convert their assertions into assumptions
+                                  then prove the top module's contract
+        - _vc_``top``_common    : remove all asserts of top module, then flatten
+        - _vc_``top``_``inst``  : focus on one instance; remove all other instances' assumptions, assume previous instances assertions,
+                                  and remove next instances assertions; prove the current instance assumption
 
         Returns a list of further objectives to be processed.
         """
+        logger.debug(f"Visiting objective {objective.json_path:} {objective.top}")
         if objective.top in self._processed_modules:
             return []
         self._processed_modules.add(objective.top)
 
         new_objectives = []
         cg = cell_graph.get_cell_graphs(
-            self.strategy.header, objective.top, self.strategy.multiclock
+            self.strategy.header,
+            objective.top,
+            self.strategy.multiclock,
+            self.verbose_yosys,
         )
 
-        objective_group = f"f{objective.json_path}_top"
+        main_task = self._get_task_or_group_name(
+            objective.top if objective.top else "objective"
+        )
         objective_script = [line for line in self.strategy.header]
-        objective_script.append(f"hierarchy -top {objective.top}")
+        objective_script.extend([f"hierarchy -top {objective.top}", "proc"])
         if objective.early_assert or objective.early_assume:
             objective_script.append(
                 "chformal -early -assert "
                 + ("-assume" if objective.early_assume else "")
             )
-        self.script.append((objective_group, objective_script))
+        self.script.append((main_task, objective_script))
 
         if objective.tactic is None:
             logger.info(f"{objective.top}: Generating direct task")
-            self.tasks.append(SbyTask(objective_group, []))
+            self.add_task(main_task, [])
         elif isinstance(objective.tactic, proof_strategy.AssumeGuaranteeTactic):
             all_modules = set(
-                str(_strip_backslash(k))
-                for k in cg[objective.top].topmodule.design.modules_.keys()
+                str(_strip_backslash(str(k))) for k in cg[objective.top].design.modules_
+            )
+            user_defined_cells = list(
+                filter(
+                    lambda cell: cell.type[0] == "\\",
+                    cg[objective.top].top_module.cells_.values(),
+                )
             )
             all_submodules = all_modules & set(
-                _strip_backslash(cell.type)
-                for cell in cg[objective.top].topmodule.cells_.values()
+                _strip_backslash(str(cell.type)) for cell in user_defined_cells
             )
             participating_submodules = (
                 all_submodules
                 if objective.tactic.submodules is None
-                else objective.tactic.submodules.keys()
+                else set(objective.tactic.submodules.keys())
             )
+            # logger.debug(f"user_defined_cells: {user_defined_cells}")
+            # logger.debug(list(cg[objective.top].top_module.cells_.values()))
+            # logger.debug(f"all submodules: {all_submodules}")
+            # logger.debug(f"participating submodules: {participating_submodules}")
             if not set(participating_submodules).issubset(all_submodules):
                 raise Exception(
                     f"{objective.tactic.json_path}: Following modules do not appear inside module {objective.top}: {participating_submodules - all_submodules}"
                 )
 
             if objective.tactic.instances:
+                user_defined_cell_names = set(
+                    str(cell.name) for cell in user_defined_cells
+                )
                 for inst in objective.tactic.instances:
-                    if f"\\{inst}" not in cg[objective.top].topmodule.cells_.keys():
+                    if f"\\{inst}" not in user_defined_cell_names:
                         raise Exception(
-                            f"{objective.tactic.json_path}: no instance {inst} found in module {objective.top}"
+                            f"{objective.tactic.json_path}: no instance {inst} found in module {objective.top})"
                         )
 
             # instances whose modules appear in participating_submodules
-            all_submodule_instances: set[str] = set()
-            for cell_name, cell in cg[objective.top].topmodule.cells_.items():
-                cell_name = _strip_backslash(cell_name)
+            all_participating_submodule_instances: set[str] = set()
+            for cell in user_defined_cells:
+                cell_name = _strip_backslash(cell.name)
                 cell_type = _strip_backslash(cell.type)
                 if cell_type in participating_submodules:
-                    all_submodule_instances.add(cell_name)
+                    all_participating_submodule_instances.add(cell_name)
 
             if objective.tactic.instances:
                 participating_instances = tuple(objective.tactic.instances)
                 inlined_instances = tuple(
-                    all_submodule_instances - set(participating_instances)
+                    all_participating_submodule_instances - set(participating_instances)
                 )
             elif objective.tactic.inline:
                 assert not objective.tactic.auto
                 inlined_instances = tuple(objective.tactic.inline)
                 participating_instances = tuple(
-                    all_submodule_instances - set(inlined_instances)
+                    all_participating_submodule_instances - set(inlined_instances)
                 )
+            else:
+                inlined_instances = []
+                participating_instances = all_participating_submodule_instances
 
             logger.debug(
                 f"{objective.top}: Generating assume-guarantee verification conditions"
@@ -176,7 +213,7 @@ class SbyScript:
                 f"\tFollowing submodules participate in assume-guarantee decomposition: {participating_submodules}"
             )
             logger.debug(
-                f"\tAll instances of the participating submodules: {all_submodule_instances}"
+                f"\tAll instances of the participating submodules: {all_participating_submodule_instances}"
             )
             logger.debug(f"\tInlined: {inlined_instances}")
             logger.debug(f"\tDecomposed: {participating_instances}")
@@ -189,28 +226,36 @@ class SbyScript:
                 )
             else:
                 ordered_instances = list(
-                    cg[objective.top].topmodule.cell(f"\\{name}")
+                    cg[objective.top].top_module.cell(f"\\{name}")
                     for name in participating_instances
                 )
+            ordered_instances = list(
+                filter(
+                    lambda cell: (
+                        str(cell.type)[0] == "\\"
+                        and _strip_backslash(cell.type) in participating_submodules
+                    ),
+                    ordered_instances,
+                )
+            )
             logger.debug(
                 f"Submodule instances order (auto: {objective.tactic.auto}): {[inst.name for inst in ordered_instances]}"
             )
-            top_ag_group = objective_group + "_ag_top_"
-            top_ag_script = ["proc", "flatten"]
+
+            top_ag_task = self._get_task_or_group_name(f"_vc_{main_task}_top")
+            top_ag_script = ["flatten"]
             for cell in ordered_instances:
                 cell_name = _strip_backslash(cell.name)
                 # Do not cut if to be inlined
                 if _strip_backslash(cell.name) in inlined_instances:
                     continue
                 # Cut all outputs of the cell
-                for conn_name, _ in cell.connections_:
+                for conn_name in cell.connections_:
                     if cell.output(conn_name):
                         top_ag_script.append(
-                            f"cutpoint {objective.top}/{_strip_backslash(cell.name)}.{conn_name}"
+                            f"cutpoint {objective.top}/{_strip_backslash(cell.name)}.{_strip_backslash(conn_name)}"
                         )
             top_ag_script.append("opt_clean -purge")
-            self.script.append((top_ag_group, top_ag_script))
-
             for cell in ordered_instances:
                 cell_name = _strip_backslash(cell.name)
                 # Convert instance's asserts into assumes
@@ -220,14 +265,16 @@ class SbyScript:
                 top_ag_script.append(
                     f"chformal -assert -assert2assume {objective.top}/{cell_name}.*"
                 )
-            self.script.append((top_ag_group, top_ag_script))
-            # Task: disconnect submodules (objective_group), and prove the top contract
-            self.tasks.append(SbyTask(top_ag_group, [top_ag_group]))
+            self.script.append((top_ag_task, top_ag_script))
+            # Task: disconnect submodules first (main_task), then prove the top contract
+            self.add_task(main_task, [top_ag_task], [])
 
             # Group common to all subinstance VCs
-            inst_ag_common_group = objective_group + "_ag_inst_common_"
+            inst_ag_common_group = self._get_task_or_group_name(
+                f"_vc_{main_task}_common"
+            )
             # remove the main assertions, and flatten
-            inst_ag_common_script = ["proc", "chformal -assert -remove", "flatten"]
+            inst_ag_common_script = ["chformal -assert -remove", "flatten"]
             # remove all submodule instances' assumptions
             for cell in ordered_instances:
                 cell_name = _strip_backslash(cell.name)
@@ -241,7 +288,9 @@ class SbyScript:
             while next_cells:
                 cell = next_cells.pop(0)
                 cell_name = _strip_backslash(cell.name)
-                inst_ag_group = objective_group + f"_ag_{cell_name}_"
+                inst_ag_task = self._get_task_or_group_name(
+                    f"_vc_{main_task}_{cell_name}_"
+                )
                 inst_ag_script = []
                 # assume previous instances' assertions
                 for prev_cell in previous_cell_names:
@@ -257,10 +306,11 @@ class SbyScript:
                 inst_ag_script.append(
                     f"chformal -assume -assume2assert {objective.top}/{cell_name}.*"
                 )
-                self.script.append((inst_ag_group, inst_ag_script))
-                self.tasks.append(
-                    SbyTask(inst_ag_group, [objective_group, inst_ag_common_group])
+                self.script.append((inst_ag_task, inst_ag_script))
+                self.add_task(
+                    inst_ag_task, [main_task, inst_ag_common_group], [main_task]
                 )
+                previous_cell_names.append(cell_name)
             if objective.tactic.submodules:
                 for subm in objective.tactic.submodules.values():
                     new_objectives.append(subm)
@@ -270,9 +320,15 @@ class SbyScript:
             )
         return new_objectives
 
-    def dump(self, output_filename: str):
+    def dump(self, f: TextIO | None = None):
+        """Write the .sby file to an already open file object ``f`` (e.g. an
+        open file or ``sys.stdout``)."""
+        if f is None:
+            f = sys.stdout
+
         def _dump_dict(content: dict[str, list[str]], f):
-            print("\n".join(content[""]), file=f)
+            if "" in content:
+                print("\n".join(content[""]), file=f)
             for group, opt in content.items():
                 if group:
                     print(f"{group}:", file=f)
@@ -280,17 +336,18 @@ class SbyScript:
                     print("--", file=f)
             print("", file=f)
 
-        with open(output_filename, "w") as f:
-            print("[tasks]", file=f)
-            for task in self.tasks:
-                print(f"{task.name} {' '.join(task.groups)}", file=f)
-            print("", file=f)
-            print("[options]", file=f)
-            _dump_dict(self.options, f)
-            print("[engine]", file=f)
-            _dump_dict(self.engine, f)
-            print("[script]", file=f)
-            for group, content in self.script:
-                print(f"{group}:", file=f)
-                print("\n".join(content), file=f)
-                print("--", file=f)
+        print("[tasks]", file=f)
+        for task in self.tasks:
+            print(f"{task.name} {' '.join(task.groups)}", file=f)
+        print("", file=f)
+        print("[options]", file=f)
+        _dump_dict(self.options, f)
+        print("[engine]", file=f)
+        _dump_dict(self.engine, f)
+        print("[script]", file=f)
+        for group, content in self.script:
+            print(f"{group}:", file=f)
+            print("\n".join(content), file=f)
+            print("--", file=f)
+        print("[files]", file=f)
+        print("\n".join(self.strategy.files), file=f)

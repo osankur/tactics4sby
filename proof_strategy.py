@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, NoReturn
 
-from logger import logger, setup_logging
+from logger import logger
 
 __all__ = [
     "ProofStrategyError",
@@ -134,11 +132,12 @@ class ProofStrategy:
     """A parsed proof strategy: the top-level document.
 
     ``header`` lists the Yosys commands run once, in order, before any
-    objective.  ``source`` records where the strategy was read from and is
-    excluded from comparison/hashing.
+    objective.  ``files`` is a tuple of source files to be considered in the sby configuration scripts.
+    ``source`` records where the strategy was read from and is excluded from comparison/hashing.
     """
 
     header: tuple[str, ...]
+    files: tuple[str, ...]
     objectives: tuple[Objective, ...]
     source: Path | None = field(default=None, compare=False)
     json_path: str = field(default="", compare=False)
@@ -159,7 +158,7 @@ _OBJECTIVE_OPTIONAL = (
 #: Nested objectives (submodule contracts) may not set the early flags: they
 #: are inherited from the top-level objective.
 _NESTED_OBJECTIVE_OPTIONAL = ("name", "tactic")
-_PROOF_STRATEGY_REQUIRED = ("header", "objectives")
+_PROOF_STRATEGY_REQUIRED = ("header", "files", "objectives")
 _PROOF_STRATEGY_OPTIONAL = ()
 _TOP_REQUIRED = ("proof_strategy",)
 _TOP_OPTIONAL = ("$schema",)
@@ -487,6 +486,7 @@ class _Parser:
             ps, "proof_strategy", _PROOF_STRATEGY_REQUIRED, _PROOF_STRATEGY_OPTIONAL
         )
         header = self._string_list(ps["header"], "proof_strategy.header")
+        files = self._string_list(ps["files"], "proof_strategy.files")
         if not isinstance(ps["objectives"], list):
             self._err(
                 "proof_strategy.objectives",
@@ -498,6 +498,7 @@ class _Parser:
         )
         return ProofStrategy(
             header=header,
+            files=files,
             objectives=objectives,
             source=source,
             json_path="proof_strategy",

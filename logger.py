@@ -7,11 +7,7 @@ logging.setLoggerClass(logging.Logger)
 logger = logging.getLogger(LOGGER_NAME)
 
 # How many -v flags map to which level (index 0 == no -v given)
-VERBOSITY_LEVELS: tuple[int, ...] = (
-    logging.WARNING,
-    logging.INFO,
-    logging.DEBUG
-)
+VERBOSITY_LEVELS: tuple[int, ...] = (logging.WARNING, logging.INFO, logging.DEBUG)
 
 DEFAULT_LOG_FORMAT = "%(levelname)s: %(message)s"
 VERBOSE_LOG_FORMAT = "%(levelname)s %(funcName)s:%(lineno)d: %(message)s"
@@ -76,5 +72,4 @@ def setup_logging(
         file_handler.setFormatter(ColorFormatter(log_format, datefmt, False))
         logger.addHandler(file_handler)
 
-    logger.debug("log level set to %s", logging.getLevelName(level))
     return logger

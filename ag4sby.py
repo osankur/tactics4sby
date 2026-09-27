@@ -1,7 +1,10 @@
 import sys
+import os
 import argparse
+import traceback
 from logger import logger, setup_logging
 import proof_strategy
+import sby_generator
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,18 +49,46 @@ def main(argv: list[str] | None = None) -> int:
         dest="force",
         help="remove workdir if it already exists",
     )
+    parser.add_argument(
+        "-o",
+        dest="out_file",
+        help="Output .sby script file (default=stdout)",
+        default=sys.stdout,
+    )
+    parser.add_argument(
+        "--verbose-yosys",
+        action="store_true",
+        dest="verbose_yosys",
+        help="show output of yosys calls",
+    )
     args = parser.parse_args(argv)
     setup_logging(
         verbosity=args.verbosity,
         log_file=args.log_file,
         use_color=args.log_color,
     )
+    initial_dir = os.getcwd()
     try:
         strategy = proof_strategy.parse_file(args.strategy)
+        # like sby, paths inside the strategy file are relative to its directory
+        os.chdir(os.path.dirname(os.path.abspath(args.strategy)))
+        logger.info(proof_strategy._summarise(strategy))
+        generator = sby_generator.SbyScript(
+            strategy, args.verbosity > 0, args.verbose_yosys
+        )
+        if args.out_file is sys.stdout:
+            generator.dump(sys.stdout)
+        else:
+            # -o is relative to the invocation directory, not the strategy dir
+            os.chdir(initial_dir)
+            with open(args.out_file, "w") as f:
+                generator.dump(f)
     except Exception as exc:
+        if args.verbosity > 1:
+            traceback.print_exc()
         logger.error("%s", exc)
         return 1
-    print(proof_strategy._summarise(strategy))
+
     return 0
 
 

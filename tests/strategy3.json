@@ -3,6 +3,9 @@
     "header": [
       "read_verilog -sv module_dep1.sv"
     ],
+    "files": [
+      "module_dep1.sv"
+    ],
     "objectives": [
       {
         "top": "main",
@@ -19,7 +22,7 @@
               "top": "subm",
               "tactic": {
                 "name": "split",
-                "split_expression": "y1 > 2",
+                "split_expression": "case_y_wire",
                 "case_true": {
                   "name": "assume_guarantee"
                 }

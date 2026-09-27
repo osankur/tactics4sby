@@ -3,10 +3,10 @@
     "header": [
       "read_verilog -DPROOF_STRATEGY -sv module_dep2.sv"
     ],
+    "files": [
+      "module_dep2.sv"
+    ],
     "objectives": [
-      {
-        "top": "main"
-      },
       {
         "top": "main",
         "tactic": {

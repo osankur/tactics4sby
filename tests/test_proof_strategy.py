@@ -18,11 +18,20 @@ from proof_strategy import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HEADER = ["read_verilog -sv module_dep1.sv"]
+FILES = ["module_dep1.sv"]
 
 
 def strategy(objectives: list[dict]) -> str:
     """A strategy document with the given top-level ``objectives``."""
-    return json.dumps({"proof_strategy": {"header": HEADER, "objectives": objectives}})
+    return json.dumps(
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": FILES,
+                "objectives": objectives,
+            }
+        }
+    )
 
 
 def ag(**tactic_fields: object) -> dict:
@@ -49,6 +58,7 @@ def test_leaf_objective():
     assert isinstance(result, ProofStrategy)
     assert result.source is None
     assert result.header == tuple(HEADER)
+    assert result.files == tuple(FILES)
 
     (objective,) = result.objectives
     assert objective == Objective(top="main", tactic=None)
@@ -64,7 +74,9 @@ def test_defaults_are_none():
 
 def test_empty_objectives_list_is_allowed():
     result = parse_string(strategy([]))
-    assert result == ProofStrategy(header=tuple(HEADER), objectives=())
+    assert result == ProofStrategy(
+        header=tuple(HEADER), files=tuple(FILES), objectives=()
+    )
 
 
 def test_assertions_and_assumptions_are_gone():
@@ -619,6 +631,55 @@ def test_tactic_missing_name_is_rejected():
 
 
 # --------------------------------------------------------------------------- #
+# The mandatory `files` field
+# --------------------------------------------------------------------------- #
+
+
+def test_files_is_required():
+    document = json.dumps({"proof_strategy": {"header": HEADER, "objectives": []}})
+    with pytest.raises(
+        ProofStrategyError, match="missing required key\\(s\\): 'files'"
+    ):
+        parse_string(document)
+
+
+def test_files_must_be_an_array_of_strings():
+    document = json.dumps(
+        {"proof_strategy": {"header": HEADER, "files": "a.sv", "objectives": []}}
+    )
+    with pytest.raises(ProofStrategyError, match="expected an array of strings"):
+        parse_string(document)
+
+
+def test_files_entries_must_be_strings():
+    document = json.dumps(
+        {"proof_strategy": {"header": HEADER, "files": [1], "objectives": []}}
+    )
+    with pytest.raises(ProofStrategyError, match="proof_strategy.files\\[0\\]"):
+        parse_string(document)
+
+
+def test_files_may_be_empty():
+    document = json.dumps(
+        {"proof_strategy": {"header": HEADER, "files": [], "objectives": []}}
+    )
+    assert parse_string(document).files == ()
+
+
+def test_files_is_parsed_in_order():
+    document = json.dumps(
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": ["b.sv", "a.sv"],
+                "objectives": [],
+            }
+        }
+    )
+    assert parse_string(document).files == ("b.sv", "a.sv")
+
+
+# --------------------------------------------------------------------------- #
 # Documents and error reporting
 # --------------------------------------------------------------------------- #
 
@@ -626,12 +687,12 @@ def test_tactic_missing_name_is_rejected():
 @pytest.mark.parametrize(
     "document",
     [
-        '{"proof_strategy": {"header": [] "objectives": []}}',
+        '{"proof_strategy": {"header": [] "files": [], "objectives": []}}',
         "",
         "null",
         "[]",
-        '{"context": {"header": [], "objectives": []}}',  # old root key
-        '{"proof_strategy": {"header": [], "objectives": []}, "extra": 1}',
+        '{"context": {"header": [], "files": [], "objectives": []}}',  # old root key
+        '{"proof_strategy": {"header": [], "files": [], "objectives": []}, "extra": 1}',
     ],
 )
 def test_malformed_documents_raise(document):
@@ -657,7 +718,7 @@ def test_error_messages_carry_the_json_path():
 
 def test_bad_json_reports_line_and_column():
     with pytest.raises(ProofStrategyError, match="line 1 column 34"):
-        parse_string('{"proof_strategy": {"header": [] "objectives": []}}')
+        parse_string('{"proof_strategy": {"header": [] "files": [], "objectives": []}}')
 
 
 # --------------------------------------------------------------------------- #

@@ -1,12 +1,3 @@
-# TODO List
-- Add a cycle detection to CellGraph class: the dependency graph with cycles must be either rejected or rendered acyclic either with user-provided edge removals, or automatically
-- Check that instance names are instances of submodules in a assume_guarantee tactic
-- Add engines section to all objectives (an engines field at a lower level overrides the engine inherited by parent)
-- Add options section to allow bmc (with options such as depth) and prove modes with the same inheritance rules
-- Avoid reproving the same submodules in different tactic instances
-- an assume guarantee VC cannot use a further assume_guarantee tactic. it can only contain split tactics.
-- allow further cutpoint scripts inside objectives
-- maybe disallow inout
 # Proof Strategy
 
 Proof strategies are described in JSON files. These describe hierarchical proof techniques to be applied when proving the properties of an input Verilog design.
@@ -14,6 +5,7 @@ Proof strategies are described in JSON files. These describe hierarchical proof 
 At the top level, a `proof_strategy` object describes the design under verification with the following subfields:
 
 - `header` describing a list of strings that are Yosys commands to be executed (such as reading Verilog files, activating define macros). The commands are executed in a single Yosys session, in order, before any objective is processed. Relative paths are resolved against the directory containing the strategy file.
+- `files`, a mandatory list of source files to be considered in the sby configuration scripts. It may be empty.
 - `objectives`, a list of `objective` objects describing verification objectives. This list can be empty.
 
 Each objective is given by the following fields:

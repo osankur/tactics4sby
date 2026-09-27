@@ -3,6 +3,9 @@
     "header": [
       "read_verilog -sv module_dep1.sv"
     ],
+    "files": [
+      "module_dep1.sv"
+    ],
     "objectives": [
       {
         "top": "main",

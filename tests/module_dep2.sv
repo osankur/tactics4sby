@@ -6,7 +6,7 @@ module main (
   input clk;
   input logic [4:0] x;
   output logic [4:0] z;
-  logic [4:0] y1, y;
+  logic [4:0] y1, y2, y;
   logic undriven1, undriven2;
 
   subm s1 (
@@ -17,6 +17,11 @@ module main (
   subm s2 (
       .clk(clk),
       .x  (y1),
+      .y  (y2)
+  );
+  subm s3 (
+      .clk(clk),
+      .x  (y2),
       .y  (y)
   );
   always_comb begin
