@@ -432,6 +432,10 @@ class _Parser:
             inline = self._string_list(obj["inline"], f"{path}.inline")
             self._check_distinct(list(inline), f"{path}.inline", "inline instance")
 
+        if inline and instances:
+            raise ProofStrategyError(
+                f"{path}: 'inline' and 'instances' are mutually exclusive"
+            )
         return AssumeGuaranteeTactic(
             submodules=submodules,
             auto=auto,

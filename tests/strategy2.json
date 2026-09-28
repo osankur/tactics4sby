@@ -1,10 +1,10 @@
 {
   "proof_strategy": {
     "header": [
-      "read_verilog -sv module_dep1.sv"
+      "read_verilog -sv module_dep2.sv"
     ],
     "files": [
-      "module_dep1.sv"
+      "module_dep2.sv"
     ],
     "objectives": [
       {
@@ -18,9 +18,12 @@
               "top": "subm"
             }
           ],
+          "auto": false,
           "instances": [
             "s1",
-            "s2"
+            "s2",
+            "intermediate_assert",
+            "s3"
           ]
         }
       }

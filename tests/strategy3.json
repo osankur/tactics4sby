@@ -1,33 +1,19 @@
 {
   "proof_strategy": {
     "header": [
-      "read_verilog -sv module_dep1.sv"
+      "read_verilog -sv module_dep2.sv"
     ],
     "files": [
-      "module_dep1.sv"
+      "module_dep2.sv"
     ],
     "objectives": [
       {
         "top": "main",
         "tactic": {
           "name": "assume_guarantee",
-          "inline": [
-            "s1"
-          ],
           "instances": [
-            "s2"
-          ],
-          "submodules": [
-            {
-              "top": "subm",
-              "tactic": {
-                "name": "split",
-                "split_expression": "case_y_wire",
-                "case_true": {
-                  "name": "assume_guarantee"
-                }
-              }
-            }
+            "pure_acyclic_assert1",
+            "intermediate_assert"
           ]
         }
       }

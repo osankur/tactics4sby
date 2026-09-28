@@ -5,3 +5,6 @@ __pycache__
 *.svg
 *.dot
 a.out
+.vscode
+tests/tmp*
+tests/strategy*/*

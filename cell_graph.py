@@ -217,18 +217,20 @@ class CellGraph:
         """Return the dependency graph between submodule instances and asserts.
         Restrict the assume and asserts to the given tuples when not None.
 
-        ``participating_instances`` is an optional set of submodule instance names (without backslash) to consider.
+        ``participating_instances`` is an optional set of submodule instance or assert names (without backslash) to consider in this graph.
         """
         if participating_instances is None:
             instance_cells = self.submodule_instance_cells
         else:
             instance_cells = set(
                 cell
-                for cell in self.submodule_instance_cells
-                if str(cell.name)[1:] in participating_instances
+                for cell in itertools.chain(
+                    self.submodule_instance_cells, self.assert_cells
+                )
+                if _strip_backslash(cell.name) in participating_instances
             )
         deps = dict()
-        for cell in itertools.chain(instance_cells, self.assert_cells):
+        for cell in itertools.chain(instance_cells):
             # Get the sigbits of input signals of cell (discard if not a wire)
             input_sigspecs = [
                 list(conn.bits()) if conn.is_wire() else None
@@ -248,7 +250,6 @@ class CellGraph:
                 )
             )
             deps[cell] = cell_deps
-
         return ModuleDependencyGraph(deps)
 
     def print_module_dependencies(self):

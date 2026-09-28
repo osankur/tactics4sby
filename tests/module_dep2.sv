@@ -25,6 +25,7 @@ module main (
       .y  (y)
   );
   always_comb begin
+    intermediate_assert : assert (y2 >= 2);
     pure_assume1 : assume (x > 0);
     pure_acyclic_assert1 : assert (z >= 2);
     nonpure_assume1 : assume (x > y1);

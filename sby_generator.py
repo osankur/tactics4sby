@@ -147,36 +147,41 @@ class SbyScript:
             logger.info(f"{objective.top}: Generating direct task")
             self.add_task(main_task, [])
         elif isinstance(objective.tactic, proof_strategy.AssumeGuaranteeTactic):
-            all_modules = set(
+            all_module_names = set(
                 str(_strip_backslash(str(k))) for k in cg[objective.top].design.modules_
             )
             user_defined_cells = list(
                 filter(
-                    lambda cell: cell.type[0] == "\\",
+                    lambda cell: cell.name[0] == "\\",
                     cg[objective.top].top_module.cells_.values(),
                 )
             )
-            all_submodules = all_modules & set(
-                _strip_backslash(str(cell.type)) for cell in user_defined_cells
+            all_submodule_names = all_module_names & set(
+                _strip_backslash(str(cell.type))
+                for cell in user_defined_cells
+                if cell.type[0] == "\\"
             )
-            participating_submodules = (
-                all_submodules
+            if objective.tactic.submodules is not None:
+                assert set(objective.tactic.submodules.keys()).issubset(
+                    all_submodule_names
+                ), (
+                    f"Following modules do not appear inside module {objective.top}: {all_submodule_names.difference(set(objective.tactic.submodules.keys()))}"
+                )
+            participating_submodule_names = (
+                all_submodule_names
                 if objective.tactic.submodules is None
                 else set(objective.tactic.submodules.keys())
             )
-            # logger.debug(f"user_defined_cells: {user_defined_cells}")
-            # logger.debug(list(cg[objective.top].top_module.cells_.values()))
-            # logger.debug(f"all submodules: {all_submodules}")
-            # logger.debug(f"participating submodules: {participating_submodules}")
-            if not set(participating_submodules).issubset(all_submodules):
+            if not set(participating_submodule_names).issubset(all_submodule_names):
                 raise Exception(
-                    f"{objective.tactic.json_path}: Following modules do not appear inside module {objective.top}: {participating_submodules - all_submodules}"
+                    f"{objective.tactic.json_path}: Following modules do not appear inside module {objective.top}: {participating_submodule_names - all_submodule_names}"
                 )
 
             if objective.tactic.instances:
                 user_defined_cell_names = set(
                     str(cell.name) for cell in user_defined_cells
                 )
+                print(user_defined_cell_names)
                 for inst in objective.tactic.instances:
                     if f"\\{inst}" not in user_defined_cell_names:
                         raise Exception(
@@ -184,36 +189,38 @@ class SbyScript:
                         )
 
             # instances whose modules appear in participating_submodules
-            all_participating_submodule_instances: set[str] = set()
+            participating_submodule_instances: set[str] = set()
             for cell in user_defined_cells:
-                cell_name = _strip_backslash(cell.name)
-                cell_type = _strip_backslash(cell.type)
-                if cell_type in participating_submodules:
-                    all_participating_submodule_instances.add(cell_name)
+                if cell.type[0] == "\\":
+                    cell_type = _strip_backslash(cell.type)
+                    if cell_type in participating_submodule_names:
+                        participating_submodule_instances.add(
+                            _strip_backslash(cell.name)
+                        )
 
             if objective.tactic.instances:
                 participating_instances = tuple(objective.tactic.instances)
                 inlined_instances = tuple(
-                    all_participating_submodule_instances - set(participating_instances)
+                    participating_submodule_instances - set(participating_instances)
                 )
             elif objective.tactic.inline:
-                assert not objective.tactic.auto
+                assert objective.tactic.auto
                 inlined_instances = tuple(objective.tactic.inline)
                 participating_instances = tuple(
-                    all_participating_submodule_instances - set(inlined_instances)
+                    participating_submodule_instances - set(inlined_instances)
                 )
             else:
                 inlined_instances = []
-                participating_instances = all_participating_submodule_instances
+                participating_instances = participating_submodule_instances
 
             logger.debug(
                 f"{objective.top}: Generating assume-guarantee verification conditions"
             )
             logger.debug(
-                f"\tFollowing submodules participate in assume-guarantee decomposition: {participating_submodules}"
+                f"\tFollowing submodules participate in assume-guarantee decomposition: {participating_submodule_names}"
             )
             logger.debug(
-                f"\tAll instances of the participating submodules: {all_participating_submodule_instances}"
+                f"\tAll instances of the participating submodules: {participating_submodule_instances}"
             )
             logger.debug(f"\tInlined: {inlined_instances}")
             logger.debug(f"\tDecomposed: {participating_instances}")
@@ -229,17 +236,8 @@ class SbyScript:
                     cg[objective.top].top_module.cell(f"\\{name}")
                     for name in participating_instances
                 )
-            ordered_instances = list(
-                filter(
-                    lambda cell: (
-                        str(cell.type)[0] == "\\"
-                        and _strip_backslash(cell.type) in participating_submodules
-                    ),
-                    ordered_instances,
-                )
-            )
             logger.debug(
-                f"Submodule instances order (auto: {objective.tactic.auto}): {[inst.name for inst in ordered_instances]}"
+                f"\tAssume-guarantee order (auto: {objective.tactic.auto}): {[inst.name for inst in ordered_instances]}"
             )
 
             top_ag_task = self._get_task_or_group_name(f"_vc_{main_task}_top")
@@ -249,6 +247,9 @@ class SbyScript:
                 # Do not cut if to be inlined
                 if _strip_backslash(cell.name) in inlined_instances:
                     continue
+                # Ignore if assert cell
+                if cell.type == "$assert":
+                    continue
                 # Cut all outputs of the cell
                 for conn_name in cell.connections_:
                     if cell.output(conn_name):
@@ -256,15 +257,28 @@ class SbyScript:
                             f"cutpoint {objective.top}/{_strip_backslash(cell.name)}.{_strip_backslash(conn_name)}"
                         )
             top_ag_script.append("opt_clean -purge")
+
+            def _assumes_and_asserts_of_cell(cell) -> str:
+                if cell.type == "$assert":
+                    return f"{objective.top}/{_strip_backslash(cell.name)}"
+                else:
+                    return f"{objective.top}/{_strip_backslash(cell.name)}.*"
+
             for cell in ordered_instances:
                 cell_name = _strip_backslash(cell.name)
-                # Convert instance's asserts into assumes
-                top_ag_script.append(
-                    f"chformal -remove -assume {objective.top}/{cell_name}.*"
-                )
-                top_ag_script.append(
-                    f"chformal -assert -assert2assume {objective.top}/{cell_name}.*"
-                )
+                if cell.type == "$assert":
+                    # Convert to assume
+                    top_ag_script.append(
+                        f"chformal -remove -assume {_assumes_and_asserts_of_cell(cell)}"
+                    )
+                else:
+                    # This is an module instance. Convert instance's all asserts into assumes
+                    top_ag_script.append(
+                        f"chformal -remove -assume {_assumes_and_asserts_of_cell(cell)}"
+                    )
+                    top_ag_script.append(
+                        f"chformal -assert -assert2assume {_assumes_and_asserts_of_cell(cell)}"
+                    )
             self.script.append((top_ag_task, top_ag_script))
             # Task: disconnect submodules first (main_task), then prove the top contract
             self.add_task(main_task, [top_ag_task], [])
@@ -273,17 +287,17 @@ class SbyScript:
             inst_ag_common_group = self._get_task_or_group_name(
                 f"_vc_{main_task}_common"
             )
-            # remove the main assertions, and flatten
+            # remove all top-level assertions, then flatten
             inst_ag_common_script = ["chformal -assert -remove", "flatten"]
-            # remove all submodule instances' assumptions
-            for cell in ordered_instances:
-                cell_name = _strip_backslash(cell.name)
-                inst_ag_common_script.append(
-                    f"chformal -assume -remove {objective.top}/{cell_name}.*"
-                )
+            # # remove all submodule instances' assertions; leaving only toplevel and submodule assumptions
+            # for cell in ordered_instances:
+            #     cell_name = _strip_backslash(cell.name)
+            #     inst_ag_common_script.append(
+            #         f"chformal -assert -remove {_assumes_and_asserts_of_cell(cell)}"
+            #     )
             self.script.append((inst_ag_common_group, inst_ag_common_script))
 
-            previous_cell_names = []
+            previous_cells = []
             next_cells = copy.copy(ordered_instances)
             while next_cells:
                 cell = next_cells.pop(0)
@@ -292,25 +306,29 @@ class SbyScript:
                     f"_vc_{main_task}_{cell_name}_"
                 )
                 inst_ag_script = []
-                # assume previous instances' assertions
-                for prev_cell in previous_cell_names:
-                    inst_ag_script.append(
-                        f"chformal -assert -assert2assume {objective.top}/{prev_cell}.*"
-                    )
-                # remove next cells' assertions
-                for next_cell in next_cells:
-                    inst_ag_script.append(
-                        f"chformal -assert -remove {objective.top}/{_strip_backslash(next_cell.name)}.*"
+
+                # remove previous instances' assumptions, and assume their assertions
+                for prev_cell in previous_cells:
+                    inst_ag_script.extend(
+                        [
+                            f"chformal -assume -remove {_assumes_and_asserts_of_cell(prev_cell)}",
+                            f"chformal -assert -assert2assume {_assumes_and_asserts_of_cell(prev_cell)}",
+                        ]
                     )
                 # prove current cell's assumptions
                 inst_ag_script.append(
-                    f"chformal -assume -assume2assert {objective.top}/{cell_name}.*"
+                    f"chformal -assume -assume2assert {_assumes_and_asserts_of_cell(cell)} # vc goal"
                 )
+                # remove next cells' assumptions and assertions
+                for next_cell in next_cells:
+                    inst_ag_script.append(
+                        f"chformal -assert -assume -remove {_assumes_and_asserts_of_cell(next_cell)}"
+                    )
                 self.script.append((inst_ag_task, inst_ag_script))
                 self.add_task(
                     inst_ag_task, [main_task, inst_ag_common_group], [main_task]
                 )
-                previous_cell_names.append(cell_name)
+                previous_cells.append(cell)
             if objective.tactic.submodules:
                 for subm in objective.tactic.submodules.values():
                     new_objectives.append(subm)
