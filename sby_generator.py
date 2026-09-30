@@ -73,7 +73,6 @@ class SbyScript:
         - ``top``               : remove all submodule instances (except those inlined) by applying cutpoint on their outputs
         - _vc_``top``_top       : flatten, then remove submodule assumptions, and convert their assertions into assumptions
                                   then prove the top module's contract
-        - _vc_``top``_common    : remove all asserts of top module, then flatten
         - _vc_``top``_``inst``  : focus on one instance; remove all other instances' assumptions, assume previous instances assertions,
                                   and remove next instances assertions; prove the current instance assumption
 
@@ -147,6 +146,15 @@ class SbyScript:
                         raise Exception(
                             f"{objective.tactic.json_path}: no instance {inst} found in module {objective.top})"
                         )
+                    inst_cell = cg[objective.top].top_module.cell(f"\\{inst}")
+                    if (
+                        inst_cell.type != "$assert$"
+                        and _strip_backslash(inst_cell.module.name)
+                        not in all_module_names
+                    ):
+                        raise Exception(
+                            f"{objective.tactic.json_path}: {inst} is neither a module instance or an assert"
+                        )
 
             # instances whose modules appear in participating_submodules
             participating_submodules_instances: set[str] = set()
@@ -159,7 +167,6 @@ class SbyScript:
                         )
 
             if objective.tactic.instances:
-                # TODO Check that all cells are either submodules or assert cells
                 participating_instance_names = tuple(objective.tactic.instances)
                 inlined_instance_names = tuple(
                     participating_submodules_instances
@@ -215,16 +222,20 @@ class SbyScript:
                         exclude_list.append(
                             f"{objective.top}/{cell_name}.{inst_cell_name}.*"
                         )
-                        exclude_list.append(
-                            f"{objective.top}/$flatten\{cell_name}.{inst_cell_name}.*"
+                        exclude_list.extend(
+                            [
+                                f"{objective.top}/$flatten\\{cell_name}.{inst_cell_name}.*",
+                                f"{objective.top}/$flatten\\{cell_name}.\\{inst_cell_name}.*",
+                            ]
                         )
                     script.append(
-                        f"setattr -set _ag_vc_flattened 1 {objective.top}/{cell_name}.* {objective.top}/$flatten\{cell_name}.* %u {' %d '.join(exclude_list)} %d"
+                        f"setattr -set _ag_vc_flattened 1 {objective.top}/{cell_name}.* {objective.top}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} %d"
                     )
                 return script
 
             top_ag_task = self._get_task_or_group_name(f"_vc_{main_task}_top")
             top_ag_script = [
+                "chformal -remove -cover -live",
                 "# Mark check cells at the top level:",
                 f"setattr -set _ag_vc_top 1 {objective.top}/* t:$check %i",
                 "# Flatten cells participating to assume-guarantee:",
@@ -245,19 +256,19 @@ class SbyScript:
                     "# Remove all assumptions of submodules and convert asserts into assumes",
                     "chformal -remove -assume a:_ag_vc_flattened=1",
                     "chformal -assert -assert2assume a:_ag_vc_flattened=1",
-                    "log Remaining assumes:",
+                    "log Remaining assumes for this VC:",
                     "select r:FLAVOR=assume -list",
-                    "log Remaining asserts:",
+                    "log Remaining asserts for this VC:",
                     "select r:FLAVOR=assert -list",
                 ]
             )
             top_ag_script.append("opt_clean -purge")
 
-            def _assumes_and_asserts_of_cell(cell) -> str:
+            def _subcell_names_of_cell(cell) -> str:
                 if cell.type == "$assert":
                     return f"{objective.top}/{_strip_backslash(cell.name)}"
                 else:
-                    return f"{objective.top}/{_strip_backslash(cell.name)}.*"
+                    return f"{objective.top}/{_strip_backslash(cell.name)}.* {objective.top}/$flatten\\{_strip_backslash(cell.name)}.* %u"
 
             top_ag_script.extend(
                 [
@@ -269,14 +280,6 @@ class SbyScript:
             # Task: disconnect submodules first (main_task), then prove the top contract
             self.add_task(main_task, [top_ag_task], [])
 
-            # Group common to all subinstance VCs
-            inst_ag_common_group = self._get_task_or_group_name(
-                f"_vc_{main_task}_common"
-            )
-            # remove all top-level assertions, then flatten
-            inst_ag_common_script = ["chformal -assert -remove", "flatten"]
-            self.script.append((inst_ag_common_group, inst_ag_common_script))
-
             previous_cells = []
             next_cells = copy.copy(ordered_instances)
             while next_cells:
@@ -285,36 +288,60 @@ class SbyScript:
                 inst_ag_task = self._get_task_or_group_name(
                     f"_vc_{main_task}_{cell_name}_"
                 )
-                inst_ag_script = []
+                inst_ag_script = [
+                    "chformal -remove -cover -live",
+                    "# Remove all top-level asserts and flatten:",
+                    f"chformal -assert -remove {objective.top}/*",
+                    "# Mark assume cells at the top level:",
+                    f"setattr -set _ag_vc_top 1 {objective.top}/* t:$check %i",
+                    "flatten",
+                ]
 
+                inst_ag_script.extend(
+                    _mark_level1_child_check_cells(
+                        ordered_instances, "_vc_ag_flattened"
+                    )
+                )
+                inst_ag_script.extend(
+                    [
+                        "# Remove all unmarked check cells:",
+                        "chformal -remove -assume -assert a:_ag_vc_flattened=1 a:_ag_vc_top=1 %u %n",
+                    ]
+                )
                 # remove previous instances' assumptions, and assume their assertions
                 for prev_cell in previous_cells:
                     inst_ag_script.extend(
                         [
-                            f"chformal -assume -remove {_assumes_and_asserts_of_cell(prev_cell)}",
-                            f"chformal -assert -assert2assume {_assumes_and_asserts_of_cell(prev_cell)}",
+                            f"chformal -assume -remove {_subcell_names_of_cell(prev_cell)}",
+                            f"chformal -assert -assert2assume {_subcell_names_of_cell(prev_cell)}",
                         ]
                     )
                 # prove current cell's assumptions
-                inst_ag_script.append(
-                    f"chformal -assume -assume2assert {_assumes_and_asserts_of_cell(cell)} # vc goal"
+                inst_ag_script.extend(
+                    [
+                        "# Remove current goal's assert, and prove its assume",
+                        f"chformal -remove -assert {_subcell_names_of_cell(cell)}",
+                        f"chformal -assume -assume2assert {_subcell_names_of_cell(cell)} # vc goal",
+                    ]
                 )
                 # remove next cells' assumptions and assertions
                 for next_cell in next_cells:
                     inst_ag_script.append(
-                        f"chformal -assert -assume -remove {_assumes_and_asserts_of_cell(next_cell)}"
+                        f"chformal -assert -assume -remove {_subcell_names_of_cell(next_cell)}"
                     )
                 inst_ag_script.extend(
                     [
+                        "log Remaining assumes for this VC:",
+                        "select r:FLAVOR=assume -list",
+                        "log Remaining asserts for this VC:",
+                        "select r:FLAVOR=assert -list",
                         f"select -module {objective.top}",
                         f"show -stretch -prefix {inst_ag_task} -format svg",
                     ]
                 )
 
                 self.script.append((inst_ag_task, inst_ag_script))
-                self.add_task(
-                    inst_ag_task, [main_task, inst_ag_common_group], [main_task]
-                )
+                self.add_task(inst_ag_task, [main_task], [main_task])
                 previous_cells.append(cell)
             if objective.tactic.submodules:
                 for subm in objective.tactic.submodules.values():
