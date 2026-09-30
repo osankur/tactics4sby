@@ -64,45 +64,6 @@ class SbyScript:
         for parent in parent_tasks:
             self._task_dependencies.setdefault(parent, []).append(task)
 
-    def _remove_noncontract_check_cells(
-        self,
-        top: str,
-        assertions: tuple[str, ...] | None,
-        assumptions: tuple[str, ...] | None,
-        cg: dict[str, cell_graph.CellGraph],
-    ) -> list[str]:
-        """Given assertions and assumptions lists, remove other check cells for module ``top``.
-        If one of these lists is None, then keep all the check cells.
-        """
-        script = []
-        assert_cell_names = {c.name for c in cg[top].assert_cells}
-        assume_cell_names = {c.name for c in cg[top].assume_cells}
-        if assertions:
-            for cell_name in assertions:
-                if f"\\{cell_name}" not in assert_cell_names:
-                    raise Exception(
-                        f"objective.path: assertion {cell_name} not found in module {top}"
-                    )
-            # Remove all deselected assertions
-            script.append(f"select t:$check {top}* %i r:FLAVOR=assert %i")
-            script.append(f"select -del {' '.join(assertions)}")
-            script.append("tee -a logs.txt Removing following assert cells")
-            script.append("select -list")
-            script.append("delete")
-        if assumptions:
-            # Remove all deselected assumes
-            for cell_name in assumptions:
-                if f"\\{cell_name}" not in assume_cell_names:
-                    raise Exception(
-                        f"objective.path: assume {cell_name} not found in module {top}"
-                    )
-            script.append(f"select t:$check {top}* %i r:FLAVOR=assume %i")
-            script.append(f"select -del {' '.join(assumptions)}")
-            script.append("tee -a logs.txt Removing following assume cells")
-            script.append("select -list")
-            script.append("delete")
-        return script
-
     def process_objective(
         self, objective: proof_strategy.Objective
     ) -> list[proof_strategy.Objective]:
@@ -181,7 +142,6 @@ class SbyScript:
                 user_defined_cell_names = set(
                     str(cell.name) for cell in user_defined_cells
                 )
-                print(user_defined_cell_names)
                 for inst in objective.tactic.instances:
                     if f"\\{inst}" not in user_defined_cell_names:
                         raise Exception(
@@ -189,29 +149,31 @@ class SbyScript:
                         )
 
             # instances whose modules appear in participating_submodules
-            participating_submodule_instances: set[str] = set()
+            participating_submodules_instances: set[str] = set()
             for cell in user_defined_cells:
                 if cell.type[0] == "\\":
                     cell_type = _strip_backslash(cell.type)
                     if cell_type in participating_submodule_names:
-                        participating_submodule_instances.add(
+                        participating_submodules_instances.add(
                             _strip_backslash(cell.name)
                         )
 
             if objective.tactic.instances:
-                participating_instances = tuple(objective.tactic.instances)
-                inlined_instances = tuple(
-                    participating_submodule_instances - set(participating_instances)
+                # TODO Check that all cells are either submodules or assert cells
+                participating_instance_names = tuple(objective.tactic.instances)
+                inlined_instance_names = tuple(
+                    participating_submodules_instances
+                    - set(participating_instance_names)
                 )
             elif objective.tactic.inline:
                 assert objective.tactic.auto
-                inlined_instances = tuple(objective.tactic.inline)
-                participating_instances = tuple(
-                    participating_submodule_instances - set(inlined_instances)
+                inlined_instance_names = tuple(objective.tactic.inline)
+                participating_instance_names = tuple(
+                    participating_submodules_instances - set(inlined_instance_names)
                 )
             else:
-                inlined_instances = []
-                participating_instances = participating_submodule_instances
+                inlined_instance_names = []
+                participating_instance_names = participating_submodules_instances
 
             logger.debug(
                 f"{objective.top}: Generating assume-guarantee verification conditions"
@@ -220,42 +182,75 @@ class SbyScript:
                 f"\tFollowing submodules participate in assume-guarantee decomposition: {participating_submodule_names}"
             )
             logger.debug(
-                f"\tAll instances of the participating submodules: {participating_submodule_instances}"
+                f"\tAll instances of the participating submodules: {participating_submodules_instances}"
             )
-            logger.debug(f"\tInlined: {inlined_instances}")
-            logger.debug(f"\tDecomposed: {participating_instances}")
+            logger.debug(f"\tInlined: {inlined_instance_names}")
+            logger.debug(f"\tDecomposed: {participating_instance_names}")
 
             if objective.tactic.auto:
                 ordered_instances = (
                     cg[objective.top]
-                    .get_module_dependency_graph(set(participating_instances))
+                    .get_module_dependency_graph(set(participating_instance_names))
                     .get_topological_ordering()
                 )
             else:
                 ordered_instances = list(
                     cg[objective.top].top_module.cell(f"\\{name}")
-                    for name in participating_instances
+                    for name in participating_instance_names
                 )
             logger.debug(
                 f"\tAssume-guarantee order (auto: {objective.tactic.auto}): {[inst.name for inst in ordered_instances]}"
             )
 
-            top_ag_task = self._get_task_or_group_name(f"_vc_{main_task}_top")
-            top_ag_script = ["flatten"]
-            for cell in ordered_instances:
-                cell_name = _strip_backslash(cell.name)
-                # Do not cut if to be inlined
-                if _strip_backslash(cell.name) in inlined_instances:
-                    continue
-                # Ignore if assert cell
-                if cell.type == "$assert":
-                    continue
-                # Cut all outputs of the cell
-                for conn_name in cell.connections_:
-                    if cell.output(conn_name):
-                        top_ag_script.append(
-                            f"cutpoint {objective.top}/{_strip_backslash(cell.name)}.{_strip_backslash(conn_name)}"
+            def _mark_level1_child_check_cells(cells, attribute: str) -> list[str]:
+                script = []
+                for cell in cells:
+                    exclude_list = []
+                    if cell.type == "$assert":
+                        continue
+                    submodule_name = _strip_backslash(cell.type)
+                    cell_name = _strip_backslash(cell.name)
+                    for inst_cell in cg[submodule_name].submodule_instance_cells:
+                        inst_cell_name = _strip_backslash(inst_cell.name)
+                        exclude_list.append(
+                            f"{objective.top}/{cell_name}.{inst_cell_name}.*"
                         )
+                        exclude_list.append(
+                            f"{objective.top}/$flatten\{cell_name}.{inst_cell_name}.*"
+                        )
+                    script.append(
+                        f"setattr -set _ag_vc_flattened 1 {objective.top}/{cell_name}.* {objective.top}/$flatten\{cell_name}.* %u {' %d '.join(exclude_list)} %d"
+                    )
+                return script
+
+            top_ag_task = self._get_task_or_group_name(f"_vc_{main_task}_top")
+            top_ag_script = [
+                "# Mark check cells at the top level:",
+                f"setattr -set _ag_vc_top 1 {objective.top}/* t:$check %i",
+                "# Flatten cells participating to assume-guarantee:",
+                "flatten "
+                + " ".join(
+                    [f"{objective.top}/{s}" for s in participating_instance_names]
+                ),
+                "# Mark all check cells of flattened submodules at level 1 but not below:",
+            ]
+            top_ag_script.extend(
+                _mark_level1_child_check_cells(ordered_instances, "_ag_vc_flattened")
+            )
+            top_ag_script.extend(
+                [
+                    "flatten",
+                    "# Remove all unmarked check cells:",
+                    "chformal -remove -assume -assert a:_ag_vc_flattened=1 a:_ag_vc_top=1 %u %n",
+                    "# Remove all assumptions of submodules and convert asserts into assumes",
+                    "chformal -remove -assume a:_ag_vc_flattened=1",
+                    "chformal -assert -assert2assume a:_ag_vc_flattened=1",
+                    "log Remaining assumes:",
+                    "select r:FLAVOR=assume -list",
+                    "log Remaining asserts:",
+                    "select r:FLAVOR=assert -list",
+                ]
+            )
             top_ag_script.append("opt_clean -purge")
 
             def _assumes_and_asserts_of_cell(cell) -> str:
@@ -264,21 +259,12 @@ class SbyScript:
                 else:
                     return f"{objective.top}/{_strip_backslash(cell.name)}.*"
 
-            for cell in ordered_instances:
-                cell_name = _strip_backslash(cell.name)
-                if cell.type == "$assert":
-                    # Convert to assume
-                    top_ag_script.append(
-                        f"chformal -remove -assume {_assumes_and_asserts_of_cell(cell)}"
-                    )
-                else:
-                    # This is an module instance. Convert instance's all asserts into assumes
-                    top_ag_script.append(
-                        f"chformal -remove -assume {_assumes_and_asserts_of_cell(cell)}"
-                    )
-                    top_ag_script.append(
-                        f"chformal -assert -assert2assume {_assumes_and_asserts_of_cell(cell)}"
-                    )
+            top_ag_script.extend(
+                [
+                    f"select -module {objective.top}",
+                    f"show -stretch -prefix {objective.top} -format svg",
+                ]
+            )
             self.script.append((top_ag_task, top_ag_script))
             # Task: disconnect submodules first (main_task), then prove the top contract
             self.add_task(main_task, [top_ag_task], [])
@@ -289,12 +275,6 @@ class SbyScript:
             )
             # remove all top-level assertions, then flatten
             inst_ag_common_script = ["chformal -assert -remove", "flatten"]
-            # # remove all submodule instances' assertions; leaving only toplevel and submodule assumptions
-            # for cell in ordered_instances:
-            #     cell_name = _strip_backslash(cell.name)
-            #     inst_ag_common_script.append(
-            #         f"chformal -assert -remove {_assumes_and_asserts_of_cell(cell)}"
-            #     )
             self.script.append((inst_ag_common_group, inst_ag_common_script))
 
             previous_cells = []
@@ -324,6 +304,13 @@ class SbyScript:
                     inst_ag_script.append(
                         f"chformal -assert -assume -remove {_assumes_and_asserts_of_cell(next_cell)}"
                     )
+                inst_ag_script.extend(
+                    [
+                        f"select -module {objective.top}",
+                        f"show -stretch -prefix {inst_ag_task} -format svg",
+                    ]
+                )
+
                 self.script.append((inst_ag_task, inst_ag_script))
                 self.add_task(
                     inst_ag_task, [main_task, inst_ag_common_group], [main_task]
@@ -360,7 +347,7 @@ class SbyScript:
         print("", file=f)
         print("[options]", file=f)
         _dump_dict(self.options, f)
-        print("[engine]", file=f)
+        print("[engines]", file=f)
         _dump_dict(self.engine, f)
         print("[script]", file=f)
         for group, content in self.script:

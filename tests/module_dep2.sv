@@ -25,11 +25,8 @@ module main (
       .y  (y)
   );
   always_comb begin
-    intermediate_assert : assert (y2 >= 2);
+    assert (y2 >= 2);
     pure_assume1 : assume (x > 0);
-    pure_acyclic_assert1 : assert (z >= 2);
-    nonpure_assume1 : assume (x > y1);
-    nonpure_acyclic_assert1 : assert (z >= 2 && undriven1);
     z = (y < 13) ? y : y - 2;
   end
 endmodule
@@ -49,7 +46,7 @@ module subm (
   always_comb begin
     subm_assume1 : assume (x > 0);
     y = (z > 2) ? z : 5'd2;
-    subm_assert2 : assert (y >= 2);
+    assert (y >= 2);
   end
   always_ff @(posedge clk) begin
     z <= (z < 15) ? z + 1 : y1;
@@ -66,7 +63,7 @@ module subsubm (
   initial z <= 0;
   always_comb begin
     subsubm_assume1 : assume (x > 0);
-    subsubm_assert2 : assert (y >= 2);
+    assert (y >= 2);
     y = (x > 2) ? x : 5'd2;
   end
 endmodule

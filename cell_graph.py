@@ -106,10 +106,6 @@ class ModuleDependencyGraph:
             if state.get(node, 0) == 0:
                 _visit(node)
 
-        # self.deps = {
-        #     v: [u for u in preds if (u, v) not in removed]
-        #     for v, preds in self.deps.items()
-        # }
         postorder.reverse()
         return postorder
 

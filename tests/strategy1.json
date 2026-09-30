@@ -1,10 +1,10 @@
 {
   "proof_strategy": {
     "header": [
-      "read_verilog -DPROOF_STRATEGY -sv module_dep2.sv"
+      "read_verilog -DPROOF_STRATEGY -sv module_dep1.sv"
     ],
     "files": [
-      "module_dep2.sv"
+      "module_dep1.sv"
     ],
     "objectives": [
       {
@@ -13,19 +13,10 @@
           "name": "assume_guarantee",
           "submodules": [
             {
-              "top": "subm",
-              "tactic": {
-                "name": "assume_guarantee",
-                "submodules": [
-                  {
-                    "top": "subsubm"
-                  }
-                ]
-              }
+              "top": "subm"
             }
           ],
           "instances": [
-            "s2",
             "s3"
           ]
         }

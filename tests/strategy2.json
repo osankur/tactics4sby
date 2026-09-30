@@ -21,9 +21,7 @@
           "auto": false,
           "instances": [
             "s1",
-            "s2",
-            "intermediate_assert",
-            "s3"
+            "s2"
           ]
         }
       }

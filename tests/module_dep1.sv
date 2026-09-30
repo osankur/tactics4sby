@@ -7,7 +7,6 @@ module main (
   input logic [4:0] x;
   output logic [4:0] z;
   logic [4:0] y1, y2, y;
-  logic undriven1, undriven2;
 
   subm s1 (
       .clk(clk),
@@ -25,11 +24,11 @@ module main (
       .y  (y)
   );
   always_comb begin
-    top_assumption1 : assume (x > 0);
+    top_assumption1 : assume (x & 5'b00001);
+    // top_assumption2 : assume (x > 0);
     top_property1 : assert (z >= 2);
-    // top_assumption2 : assume (x > y1);
-    // top_assumption3 : assume (undriven2);
-    // top_property2 : assert (z >= 2 && undriven1);
+    // s1_guarantee : assert (y1 >= 3 && (y1 & 5'b00001));
+    // s2_guarantee : assert (y2 >= 3 && (y2 & 5'b00001));
     z = (y < 13) ? y : y - 2;
   end
 endmodule
@@ -39,15 +38,16 @@ module subm (
     input logic [4:0] x,
     output logic [4:0] y
 );
+  logic [4:0] sx;
   logic [4:0] z;
-  initial z <= 0;
+  initial z <= 1;
   always_comb begin
-    y = (x > 2) ? x : 5'd2;
-    // subm_assert1 : assert (y >= 2);
+    sx = (x > 2) ? x : 5'd3;
+    y  = (sx > z) ? sx : z;
   end
   always_ff @(posedge clk) begin
-    z <= (z < 15) ? z + 1 : z;
-    subm_assume1 : assume (y > 0);
-    subm_assert2 : assert (y >= 2 && z > 0);
+    z <= (z < y) ? y : z;
+    subm_assume1 : assume (x & 5'b00001);
+    subm_assert1 : assert (y >= 3 && (y & 5'b00001));
   end
 endmodule
