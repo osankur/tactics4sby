@@ -1,14 +1,66 @@
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from collections.abc import Iterator
+from collections.abc import Iterator, Iterable
 import itertools
 from pathlib import Path
 
 from pyosys import libyosys as ys  # type: ignore
-from cell_io import cell_input_bits, cell_output_bits
 from logger import logger
-import proof_strategy
+import parser
+
+
+Connection = tuple[ys.IdString, ys.SigSpec]
+ConnectionBit = tuple[ys.IdString, ys.SigBit]
+
+
+def _cell_connections(
+    cell: ys.Cell, get_inputs: bool = False, get_outputs: bool = False
+) -> Iterator[Connection]:
+    """Yield the ``(conn_name, sigspec)`` pairs of ``cell`` in one direction."""
+    for conn_name, conn in cell.connections_.items():
+        if cell.output(conn_name) == get_outputs or cell.input(conn_name) == get_inputs:
+            yield conn_name, conn
+
+
+def cell_inputs(cell: ys.Cell) -> Iterator[Connection]:
+    """Yield ``(conn_name, sigspec)`` for every input connection of ``cell``."""
+    yield from _cell_connections(cell, get_inputs=True)
+
+
+def cell_outputs(cell: ys.Cell) -> Iterator[Connection]:
+    """Yield ``(conn_name, sigspec)`` for every output connection of ``cell``."""
+    yield from _cell_connections(cell, get_outputs=True)
+
+
+def _connection_bits(
+    connections: Iterable[Connection], sigmap: ys.SigMap | None = None
+) -> Iterator[ConnectionBit]:
+    """Flatten ``(conn_name, sigspec)`` pairs into ``(conn_name, bit)`` pairs.
+
+    If ``sigmap`` is given, each connection is first mapped through it, so the
+    yielded bits can be used as canonical dictionary keys.
+    """
+    for conn_name, conn in connections:
+        if sigmap is not None:
+            conn = sigmap(conn)
+        for bit in conn:
+            yield conn_name, bit
+
+
+def cell_input_bits(
+    cell: ys.Cell, sigmap: ys.SigMap | None = None
+) -> Iterator[ConnectionBit]:
+    """Yield ``(conn_name, bit)`` for every bit read by ``cell``."""
+    yield from _connection_bits(cell_inputs(cell), sigmap)
+
+
+def cell_output_bits(
+    cell: ys.Cell, sigmap: ys.SigMap | None = None
+) -> Iterator[ConnectionBit]:
+    """Yield ``(conn_name, bit)`` for every bit driven by ``cell``."""
+    yield from _connection_bits(cell_outputs(cell), sigmap)
+
 
 workdir: str = tempfile.gettempdir()
 
@@ -128,7 +180,7 @@ class CellGraph:
     _sigmap: ys.SigMap
 
     _module_dependencies: dict[ys.Cell, set[ys.Cell]] | None
-    _module_contract_mask: proof_strategy.ModuleContract
+    _module_contract_mask: parser.ModuleContract
 
     #: fill/line colours used for the node kinds of the .dot export
     _DOT_NODE_STYLES: dict[str, str] = {
@@ -147,7 +199,7 @@ class CellGraph:
         self.assert_cells = set()
         self.submodule_instance_cells = set()
         self._module_dependencies = None
-        self._module_contract_mask = proof_strategy.ModuleContract()
+        self._module_contract_mask = parser.ModuleContract()
         module_names = set(top_module.design.modules_.keys())
         for cell in top_module.cells_.values():
             if cell.type == "$assert":

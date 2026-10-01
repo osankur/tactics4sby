@@ -5,7 +5,7 @@ import dataclasses
 from dataclasses import dataclass
 from logger import logger
 from collections import deque
-import proof_strategy
+import parser
 import cell_graph
 from cell_graph import _strip_backslash
 
@@ -18,7 +18,7 @@ class SbyTask:
 
 @dataclass
 class SbyScript:
-    strategy: proof_strategy.ProofStrategy
+    strategy: parser.ProofStrategy
     verbose: bool = False
     verbose_yosys: bool = False
 
@@ -64,9 +64,7 @@ class SbyScript:
         for parent in parent_tasks:
             self._task_dependencies.setdefault(parent, []).append(task)
 
-    def process_objective(
-        self, objective: proof_strategy.Objective
-    ) -> list[proof_strategy.Objective]:
+    def process_objective(self, objective: parser.Objective) -> list[parser.Objective]:
         """Generate tasks and subtasks for this objective, and return the list of objectives that appear in the subtree.
 
         Groups generated for the assume_guarantee tactic:
@@ -106,7 +104,7 @@ class SbyScript:
         if objective.tactic is None:
             logger.info(f"{objective.top}: Generating direct task")
             self.add_task(main_task, [])
-        elif isinstance(objective.tactic, proof_strategy.AssumeGuaranteeTactic):
+        elif isinstance(objective.tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
                 str(_strip_backslash(str(k))) for k in cg[objective.top].design.modules_
             )

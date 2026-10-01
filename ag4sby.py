@@ -3,19 +3,19 @@ import os
 import argparse
 import traceback
 from logger import logger, setup_logging
-import proof_strategy
+import parser
 import sby_generator
 
 
 def main(argv: list[str] | None = None) -> int:
     """Parse a proof strategy file and print a summary of it."""
-    parser = argparse.ArgumentParser(
+    argparser = argparse.ArgumentParser(
         prog="proof_strategy",
         usage="%(prog)s [options] <strategy.json>",
         description="Parse a proof strategy JSON file and print a summary.",
     )
-    parser.add_argument("strategy", help="path to the proof strategy JSON file")
-    parser.add_argument(
+    argparser.add_argument("strategy", help="path to the proof strategy JSON file")
+    argparser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -23,45 +23,45 @@ def main(argv: list[str] | None = None) -> int:
         dest="verbosity",
         help="Increase verbosity: -v info, -vv debug",
     )
-    parser.add_argument(
+    argparser.add_argument(
         "--log-file",
         dest="log_file",
         default=None,
         help="Additionally write log records to FILE ('-' for stdout)",
     )
-    parser.add_argument(
+    argparser.add_argument(
         "--log-color",
         dest="log_color",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Force or disable coloured log output (default: auto-detect)",
     )
-    parser.add_argument(
+    argparser.add_argument(
         "--multi-clock",
         action="store_true",
         dest="opt_multiclock",
         default=False,
         help="Multiclock",
     )
-    parser.add_argument(
+    argparser.add_argument(
         "-f",
         action="store_true",
         dest="force",
         help="remove workdir if it already exists",
     )
-    parser.add_argument(
+    argparser.add_argument(
         "-o",
         dest="out_file",
         help="Output .sby script file (default=stdout)",
         default=sys.stdout,
     )
-    parser.add_argument(
+    argparser.add_argument(
         "--verbose-yosys",
         action="store_true",
         dest="verbose_yosys",
         help="show output of yosys calls",
     )
-    args = parser.parse_args(argv)
+    args = argparser.parse_args(argv)
     setup_logging(
         verbosity=args.verbosity,
         log_file=args.log_file,
@@ -69,10 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     initial_dir = os.getcwd()
     try:
-        strategy = proof_strategy.parse_file(args.strategy)
+        strategy = parser.parse_file(args.strategy)
         # like sby, paths inside the strategy file are relative to its directory
         os.chdir(os.path.dirname(os.path.abspath(args.strategy)))
-        logger.info(proof_strategy._summarise(strategy))
+        logger.info(parser._summarise(strategy))
         generator = sby_generator.SbyScript(
             strategy, args.verbosity > 0, args.verbose_yosys
         )
