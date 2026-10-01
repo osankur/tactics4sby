@@ -1,3 +1,4 @@
+import configuration
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -62,9 +63,6 @@ def cell_output_bits(
     yield from _connection_bits(cell_outputs(cell), sigmap)
 
 
-workdir: str = tempfile.gettempdir()
-
-
 def _strip_backslash(id) -> str:
     assert id[0] == "\\", f"{id} does not start with a \\"
     return str(id)[1:]
@@ -74,11 +72,9 @@ def make_model(
     read_commands: tuple[str, ...],
     top: str,
     opt_multiclock: bool,
-    verbose: bool = False,
-    dump_dot: bool = True,
+    cfg: configuration.Configuration,
 ) -> ys.Design:
-    global workdir
-    modeldir = Path(workdir) / "model"
+    modeldir = Path(cfg.tmpdir) / "model"
     modeldir.mkdir(exist_ok=True)
 
     with open(modeldir / "design_prep.ys", "w") as f:
@@ -103,14 +99,14 @@ def make_model(
         print("rename -witness", file=f)
         print("opt_clean", file=f)
         print(f"write_rtlil {modeldir}/{top}.il", file=f)
-        if dump_dot:
+        if cfg.dump_dot_circuits:
             print(f"select -module \\{top}", file=f)
             print(f"show -format svg -prefix {top} -stretch", file=f)
 
     subprocess.run(
         ["yosys", "-s", str(modeldir / "design_prep.ys")],
-        stdout=None if verbose else subprocess.DEVNULL,
-        stderr=None if verbose else subprocess.DEVNULL,
+        stdout=None if cfg.verbose_yosys else subprocess.DEVNULL,
+        stderr=None if cfg.verbose_yosys else subprocess.DEVNULL,
         check=True,
     )
     design = ys.Design()
@@ -189,8 +185,8 @@ class CellGraph:
         "assert": 'fillcolor="#ffcdd2", color="#c62828"',  # red
     }
 
-    def __init__(self, top_module: ys.Module, design: ys.Design):
-        self.design = design
+    def __init__(self, top_module: ys.Module):
+        self.design = top_module.design
         self.top_module = top_module
 
         # All assume cells of top_module
@@ -380,10 +376,10 @@ def get_cell_graphs(
     read_commands: tuple[str, ...],
     top: str,
     opt_multiclock: bool,
-    verbose: bool = False,
+    cfg: configuration.Configuration,
 ) -> dict[str, CellGraph]:
-    design: ys.Design = make_model(read_commands, top, opt_multiclock, verbose)
+    design: ys.Design = make_model(read_commands, top, opt_multiclock, cfg)
     return {
-        _strip_backslash(str(name)): CellGraph(module, design)
+        _strip_backslash(str(name)): CellGraph(module)
         for name, module in design.modules_.items()
     }

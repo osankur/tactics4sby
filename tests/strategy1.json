@@ -1,7 +1,7 @@
 {
   "proof_strategy": {
     "header": [
-      "read_verilog -DPROOF_STRATEGY -sv module_dep1.sv"
+      "read_verilog -sv module_dep1.sv"
     ],
     "files": [
       "module_dep1.sv"

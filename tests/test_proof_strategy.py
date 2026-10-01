@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from proof_strategy import (
+from parser import (
     AssumeGuaranteeTactic,
     Objective,
     ProofStrategy,

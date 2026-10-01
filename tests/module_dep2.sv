@@ -7,7 +7,6 @@ module main (
   input logic [4:0] x;
   output logic [4:0] z;
   logic [4:0] y1, y2, y;
-  logic undriven1, undriven2;
 
   subm s1 (
       .clk(clk),
@@ -26,7 +25,7 @@ module main (
   );
   always_comb begin
     assert (y2 >= 2);
-    pure_assume1 : assume (x > 0);
+    top_assume1 : assume (x > 0);
     z = (y < 13) ? y : y - 2;
   end
 endmodule

@@ -597,7 +597,7 @@ def _describe_tactic(tactic: Tactic, lines: list[str], indent: int) -> None:
                 _describe_tactic(case, lines, indent + 2)
 
 
-def _summarise(strategy: ProofStrategy) -> str:
+def summarize(strategy: ProofStrategy) -> str:
     """A short human readable rendering of ``strategy``, for logs and the CLI."""
     lines: list[str] = []
     lines.append(f"header ({len(strategy.header)} command(s)):")

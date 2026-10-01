@@ -1,10 +1,18 @@
 import sys
 import os
+import shutil
 import argparse
 import traceback
+from pathlib import Path
 from logger import logger, setup_logging
 import parser
 import sby_generator
+import configuration
+import tempfile
+
+
+def run_sby(sby_file: Path):
+    pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,6 +45,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Force or disable coloured log output (default: auto-detect)",
     )
     argparser.add_argument(
+        "--summarize",
+        action="store_true",
+        dest="summarize",
+        default=False,
+        help="Pretty print the proof strategy given as input",
+    )
+    argparser.add_argument(
         "--multi-clock",
         action="store_true",
         dest="opt_multiclock",
@@ -44,22 +59,28 @@ def main(argv: list[str] | None = None) -> int:
         help="Multiclock",
     )
     argparser.add_argument(
-        "-f",
-        action="store_true",
-        dest="force",
-        help="remove workdir if it already exists",
-    )
-    argparser.add_argument(
-        "-o",
-        dest="out_file",
-        help="Output .sby script file (default=stdout)",
-        default=sys.stdout,
-    )
-    argparser.add_argument(
         "--verbose-yosys",
         action="store_true",
         dest="verbose_yosys",
         help="show output of yosys calls",
+    )
+    argparser.add_argument(
+        "--verbose-sby",
+        action="store_true",
+        dest="verbose_sby",
+        help="show output of sby calls",
+    )
+    argparser.add_argument(
+        "--run-sby",
+        action="store_true",
+        dest="run_sby",
+        help="Run sby on produced .sby configuration file",
+    )
+    argparser.add_argument(
+        "-f",
+        action="store_true",
+        dest="force",
+        help="remove workdir if it already exists",
     )
     args = argparser.parse_args(argv)
     setup_logging(
@@ -67,22 +88,29 @@ def main(argv: list[str] | None = None) -> int:
         log_file=args.log_file,
         use_color=args.log_color,
     )
-    initial_dir = os.getcwd()
     try:
-        strategy = parser.parse_file(args.strategy)
-        # like sby, paths inside the strategy file are relative to its directory
-        os.chdir(os.path.dirname(os.path.abspath(args.strategy)))
-        logger.info(parser._summarise(strategy))
-        generator = sby_generator.SbyScript(
-            strategy, args.verbosity > 0, args.verbose_yosys
-        )
-        if args.out_file is sys.stdout:
-            generator.dump(sys.stdout)
-        else:
-            # -o is relative to the invocation directory, not the strategy dir
-            os.chdir(initial_dir)
-            with open(args.out_file, "w") as f:
-                generator.dump(f)
+        strategy_path = Path(args.strategy).resolve()
+        cfg = configuration.Configuration(strategy_path.parent, args.verbosity)
+        cfg.verbose_sby = args.verbose_sby
+        cfg.verbose_yosys = args.verbose_yosys
+        cfg.tmpdir = Path(tempfile.gettempdir()) / strategy_path.stem
+        if cfg.tmpdir.exists():
+            shutil.rmtree(cfg.tmpdir)
+        cfg.tmpdir.mkdir(parents=True)
+        os.chdir(cfg.basedir)
+        strategy = parser.parse_file(strategy_path)
+        if args.summarize:
+            logger.info(parser.summarize(strategy))
+        generator = sby_generator.SbyScript(strategy, cfg)
+        sby_file = cfg.basedir / (strategy_path.stem + ".sby")
+
+        if sby_file.exists() and not args.force:
+            raise FileExistsError(f"{sby_file} already exists; use -f to overwrite it")
+
+        with open(sby_file, "w") as f:
+            generator.dump(f)
+        logger.info(f"Generated proof strategy into {sby_file}")
+        run_sby(sby_file)
     except Exception as exc:
         if args.verbosity > 1:
             traceback.print_exc()

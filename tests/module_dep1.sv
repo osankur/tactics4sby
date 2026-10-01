@@ -25,10 +25,7 @@ module main (
   );
   always_comb begin
     top_assumption1 : assume (x & 5'b00001);
-    // top_assumption2 : assume (x > 0);
     top_property1 : assert (z >= 2);
-    // s1_guarantee : assert (y1 >= 3 && (y1 & 5'b00001));
-    // s2_guarantee : assert (y2 >= 3 && (y2 & 5'b00001));
     z = (y < 13) ? y : y - 2;
   end
 endmodule

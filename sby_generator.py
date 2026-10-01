@@ -7,6 +7,7 @@ from logger import logger
 from collections import deque
 import parser
 import cell_graph
+import configuration
 from cell_graph import _strip_backslash
 
 
@@ -19,6 +20,7 @@ class SbyTask:
 @dataclass
 class SbyScript:
     strategy: parser.ProofStrategy
+    cfg: configuration.Configuration
     verbose: bool = False
     verbose_yosys: bool = False
 
@@ -83,10 +85,7 @@ class SbyScript:
 
         new_objectives = []
         cg = cell_graph.get_cell_graphs(
-            self.strategy.header,
-            objective.top,
-            self.strategy.multiclock,
-            self.verbose_yosys,
+            self.strategy.header, objective.top, self.strategy.multiclock, self.cfg
         )
 
         main_task = self._get_task_or_group_name(
@@ -102,7 +101,6 @@ class SbyScript:
         self.script.append((main_task, objective_script))
 
         if objective.tactic is None:
-            logger.info(f"{objective.top}: Generating direct task")
             self.add_task(main_task, [])
         elif isinstance(objective.tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
