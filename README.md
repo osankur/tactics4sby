@@ -60,3 +60,60 @@ Each objective is proven independently of the others.
 - [tests/strategy1.json](tests/strategy1.json) illustrates the recursive structure with automatic instance ordering (its design references are illustrative, not the fixture).
 - [tests/strategy2.json](tests/strategy2.json) is a complete assume-guarantee proof against the `tests/module_dep1.sv` fixture, with an explicit instance order.
 - [tests/strategy3.json](tests/strategy3.json) shows automatic ordering with an inlined instance and a split nested inside a submodule objective.
+
+## Development
+
+### Environment
+
+The tool needs the Yosys Python bindings (`pyosys`), which are normally
+installed system-wide.  Create a virtual environment that can see them and
+install the test dependencies:
+
+```sh
+uv venv --python /usr/bin/python3 --system-site-packages .venv
+uv pip install --python .venv/bin/python pytest pytest-cov
+```
+
+(`--system-site-packages` is required: `pyosys` lives in the system/user site
+packages, not in the venv.)
+
+### Running the tests
+
+From the repository root:
+
+```sh
+.venv/bin/python -m pytest
+```
+
+Coverage is reported automatically at the end of every run (configured in
+`pyproject.toml`).  Useful variants:
+
+```sh
+.venv/bin/python -m pytest -q                 # quiet
+.venv/bin/python -m pytest --no-cov           # skip coverage
+.venv/bin/python -m pytest --cov-report=html  # htmlcov/index.html
+.venv/bin/python -m pytest -k cli             # only the end-to-end tests
+```
+
+### Test layout
+
+- `tests/test_proof_strategy.py` — unit tests for the JSON parser.
+- `tests/test_ag4sby.py` — unit tests for the cell/dependency graph.
+- `tests/test_cli.py` — end-to-end tests that invoke the command line
+  (`python ag4sby.py -f tests/strategy0.json`) in a subprocess and compare the
+  generated `.sby` against the golden files in `tests/golden/`.
+
+The end-to-end tests contribute to the same coverage report as the unit tests:
+`[tool.coverage.run] patch = ["subprocess"]` makes coverage start in the child
+processes, and pytest-cov combines their data files at the end of the run.
+
+### Updating the golden files
+
+When a change to the generator is intentional, regenerate the expected outputs:
+
+```sh
+for s in 0 1 2; do .venv/bin/python ag4sby.py -f tests/strategy$s.json; \
+  cp tests/strategy$s.sby tests/golden/strategy$s.sby; done
+```
+
+Then review the diff in `tests/golden/` before committing it.

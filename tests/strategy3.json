@@ -4,17 +4,13 @@
       "read_verilog -sv module_dep2.sv"
     ],
     "files": [
-      "module_dep2.sv"
+      "module_dep0.sv"
     ],
     "objectives": [
       {
         "top": "main",
         "tactic": {
-          "name": "assume_guarantee",
-          "instances": [
-            "pure_acyclic_assert1",
-            "intermediate_assert"
-          ]
+          "name": "assume_guarantee"
         }
       }
     ]

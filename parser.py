@@ -520,11 +520,6 @@ def parse_dict(data: Any, *, source: Path | None = None) -> ProofStrategy:
     ``source`` is recorded on the result and used only for messages.
     """
     strategy = _Parser().document(data, source)
-    logger.debug(
-        "parsed proof strategy%s: %d objective(s)",
-        f" from {source}" if source else "",
-        len(strategy.objectives),
-    )
     return strategy
 
 

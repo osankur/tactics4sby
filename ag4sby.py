@@ -82,6 +82,12 @@ def main(argv: list[str] | None = None) -> int:
         dest="force",
         help="remove workdir if it already exists",
     )
+    argparser.add_argument(
+        "--tmp-dir",
+        default=None,
+        dest="tmp_dir",
+        help="custom tmp directory",
+    )
     args = argparser.parse_args(argv)
     setup_logging(
         verbosity=args.verbosity,
@@ -93,9 +99,19 @@ def main(argv: list[str] | None = None) -> int:
         cfg = configuration.Configuration(strategy_path.parent, args.verbosity)
         cfg.verbose_sby = args.verbose_sby
         cfg.verbose_yosys = args.verbose_yosys
-        cfg.tmpdir = Path(tempfile.gettempdir()) / strategy_path.stem
-        if cfg.tmpdir.exists():
-            shutil.rmtree(cfg.tmpdir)
+        if args.tmp_dir:
+            cfg.tmpdir = Path(args.tmp_dir) / strategy_path.stem
+            if cfg.tmpdir.exists():
+                if not args.force:
+                    raise FileExistsError(
+                        f"{args.tmp_dir} already exists; use -f to overwrite it"
+                    )
+                else:
+                    shutil.rmtree(cfg.tmpdir)
+        else:
+            cfg.tmpdir = Path(tempfile.gettempdir()) / strategy_path.stem
+            if cfg.tmpdir.exists():
+                shutil.rmtree(cfg.tmpdir)
         cfg.tmpdir.mkdir(parents=True)
         os.chdir(cfg.basedir)
         strategy = parser.parse_file(strategy_path)

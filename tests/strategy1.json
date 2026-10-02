@@ -16,7 +16,7 @@
               "top": "subm"
             }
           ],
-          "instances": [
+          "inline": [
             "s3"
           ]
         }

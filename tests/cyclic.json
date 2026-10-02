@@ -1,0 +1,23 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv cyclic.sv"
+    ],
+    "files": [
+      "cyclic.sv"
+    ],
+    "objectives": [
+      {
+        "top": "main",
+        "tactic": {
+          "name": "assume_guarantee",
+          "submodules": [
+            {
+              "top": "subm"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

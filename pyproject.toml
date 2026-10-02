@@ -3,9 +3,46 @@
 # tests/ without any sys.path manipulation in the test files.
 #
 # Run the suite from the repository root:  pytest
+# Coverage is reported automatically (see [tool.coverage.*] below).
+
+[dependency-groups]
+# `uv sync` installs these; they are not needed to run the tool itself.
+# NOTE: `pyosys` is deliberately *not* declared as a dependency.  The project
+# uses a locally built pyosys (Yosys 0.40+50) that has no pip metadata, so
+# declaring it would make `uv sync` install PyPI's pyosys and shadow it.
+# Install it system-wide and use a `--system-site-packages` venv instead.
+dev = ["pytest", "pytest-cov"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# Coverage is on by default so that `pytest` alone reports it.  The
+# `patch = ["subprocess"]` setting below is what makes the end-to-end CLI
+# tests (which spawn `python ag4sby.py ...`) contribute to the same report.
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+# Measure branch coverage, not just line coverage.
+branch = true
+# Only measure the project's own modules, not the tests or the venv.
+source = ["."]
+omit = ["tests/*", ".venv/*"]
+# Start coverage in child Python processes too (the CLI tests run the tool
+# via `subprocess`).  This implies `parallel = true`, so each process writes
+# its own data file and pytest-cov combines them at the end of the run.
+patch = ["subprocess"]
+
+[tool.coverage.report]
+# Show the line numbers that are not covered, and don't hide 100% files.
+show_missing = true
+skip_covered = false
+# `if TYPE_CHECKING:` blocks and `raise NotImplementedError` stubs are not
+# executable code worth chasing.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
 
 [tool.ruff]
 # Declared explicitly so this file is unambiguously ruff's config root.

@@ -1,0 +1,29 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv module_dep0.sv"
+    ],
+    "files": [
+      "module_dep0.sv"
+    ],
+    "objectives": [
+      {
+        "top": "main",
+        "tactic": {
+          "name": "assume_guarantee",
+          "submodules": [
+            {
+              "top": "subm"
+            }
+          ],
+          "instances": [
+            "s_"
+          ]
+        }
+      },
+      {
+        "top": "main"
+      }
+    ]
+  }
+}

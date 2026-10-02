@@ -3,8 +3,10 @@ from typing import TextIO
 import copy
 import dataclasses
 from dataclasses import dataclass
-from logger import logger
 from collections import deque
+from pathlib import Path
+
+from logger import logger
 import parser
 import cell_graph
 import configuration
@@ -78,7 +80,7 @@ class SbyScript:
 
         Returns a list of further objectives to be processed.
         """
-        logger.debug(f"Visiting objective {objective.json_path:} {objective.top}")
+        logger.debug(f"Processing objective {objective.json_path:} {objective.top}")
         if objective.top in self._processed_modules:
             return []
         self._processed_modules.add(objective.top)
@@ -121,17 +123,13 @@ class SbyScript:
                 assert set(objective.tactic.submodules.keys()).issubset(
                     all_submodule_names
                 ), (
-                    f"Following modules do not appear inside module {objective.top}: {all_submodule_names.difference(set(objective.tactic.submodules.keys()))}"
+                    f"Following modules do not appear inside module {objective.top}: {set(objective.tactic.submodules.keys()).difference(all_submodule_names)}"
                 )
             participating_submodule_names = (
                 all_submodule_names
                 if objective.tactic.submodules is None
                 else set(objective.tactic.submodules.keys())
             )
-            if not set(participating_submodule_names).issubset(all_submodule_names):
-                raise Exception(
-                    f"{objective.tactic.json_path}: Following modules do not appear inside module {objective.top}: {participating_submodule_names - all_submodule_names}"
-                )
 
             if objective.tactic.instances:
                 user_defined_cell_names = set(
@@ -191,11 +189,15 @@ class SbyScript:
             logger.debug(f"\tDecomposed: {participating_instance_names}")
 
             if objective.tactic.auto:
-                ordered_instances = (
-                    cg[objective.top]
-                    .get_module_dependency_graph(set(participating_instance_names))
-                    .get_topological_ordering()
+                depgraph = cg[objective.top].get_module_dependency_graph(
+                    set(participating_instance_names)
                 )
+                logger.debug(f"\tInstance dependency relation:\n{depgraph}")
+                if self.cfg.verbosity >= 2:
+                    depgraph.write_module_dependencies_to_dot(
+                        Path((self.cfg.tmpdir / (f"instance_deps_{objective.top}.dot")))
+                    )
+                ordered_instances = depgraph.get_topological_ordering()
             else:
                 ordered_instances = list(
                     cg[objective.top].top_module.cell(f"\\{name}")
@@ -225,7 +227,7 @@ class SbyScript:
                             ]
                         )
                     script.append(
-                        f"setattr -set _ag_vc_flattened 1 {objective.top}/{cell_name}.* {objective.top}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} %d"
+                        f"setattr -set _ag_vc_flattened 1 {objective.top}/{cell_name}.* {objective.top}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} {'%d' if exclude_list else ''}"
                     )
                 return script
 

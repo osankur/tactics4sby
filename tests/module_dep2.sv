@@ -24,8 +24,8 @@ module main (
       .y  (y)
   );
   always_comb begin
-    assert (y2 >= 2);
-    top_assume1 : assume (x > 0);
+    top_assert : assert (y2 >= 2);
+    assume (x > 0);
     z = (y < 13) ? y : y - 2;
   end
 endmodule
