@@ -28,6 +28,9 @@ OTHER_STRATEGIES = [
     "strategy3",
     "strategy_err0",
     "strategy_err1",
+    "strategy_err2",
+    "ag_w_asserts",
+    "ag_w_asserts_err0",
 ]
 
 
@@ -69,7 +72,14 @@ def workdir(tmp_path: Path) -> Path:
     each test gets its own directory.  This keeps the repository clean and
     lets the tests run in parallel.
     """
-    for name in ("module_dep0.sv", "module_dep1.sv", "module_dep2.sv", "cyclic.sv"):
+    for name in (
+        "module_dep0.sv",
+        "module_dep1.sv",
+        "module_dep2.sv",
+        "module_dep3.sv",
+        "cyclic.sv",
+        "ag_w_asserts.sv",
+    ):
         shutil.copy(TESTS_DIR / name, tmp_path / name)
     for name in PARAM_STRATEGIES + OTHER_STRATEGIES:
         shutil.copy(TESTS_DIR / f"{name}.json", tmp_path / f"{name}.json")
@@ -187,18 +197,18 @@ def test_cli_cyclic_dep_graph(workdir: Path):
     result = run_main_program("-vv", "-f", "cyclic.json", cwd=workdir)
     assert result.returncode == 0
     dep_graph = """
-\\s2 depends on:
-\t\\s1
 \\s1 depends on:
-\t\\s2"""
+\t\\s2
+\\s2 depends on:
+\t\\s1"""
     assert dep_graph in result.stderr
 
     result = run_main_program("-vv", "-f", "strategy1.json", cwd=workdir)
     assert result.returncode == 0
     dep_graph = """
+\\s1 depends on:
 \\s2 depends on:
 \t\\s1
-\\s1 depends on:
 
 """
     assert dep_graph in result.stderr
@@ -206,11 +216,11 @@ def test_cli_cyclic_dep_graph(workdir: Path):
     result = run_main_program("-vv", "-f", "strategy3.json", cwd=workdir)
     assert result.returncode == 0
     dep_graph = """
+\\s1 depends on:
 \\s2 depends on:
 \t\\s1
 \\s3 depends on:
 \t\\s2
-\\s1 depends on:
 
 """
     assert dep_graph in result.stderr
@@ -231,3 +241,11 @@ def test_cli_strategies_w_errors(workdir: Path):
         "proof_strategy.objectives[0].tactic: no instance s_ found in module main"
         in result.stderr
     )
+
+    result = run_main_program("-f", "strategy_err2.json", cwd=workdir)
+    assert result.returncode != 0
+    "s1 is an instance of \\subm but this module is not specified in the submodules field" in result.stderr
+
+    result = run_main_program("-f", "ag_w_asserts_err0.json", cwd=workdir)
+    assert result.returncode != 0
+    assert "top_assumption1 is neither a module instance or an assert" in result.stderr

@@ -87,16 +87,16 @@ def make_model(
             print("clk2fflogic", file=f)
         else:
             print("async2sync", file=f)
-        print("opt_clean", file=f)
+        # print("opt_clean", file=f)
         print("formalff -setundef -clk2ff -ff2anyinit -hierarchy", file=f)
         # we only keep assume and asserts
         print("chformal -live -fair -cover -remove", file=f)
-        print("opt_clean", file=f)
+        # print("opt_clean", file=f)
         print("check", file=f)  # can't detect undriven wires past this point
         print("setundef -undriven -anyseq", file=f)
-        print("opt -fast", file=f)
+        # print("opt -fast", file=f)
         print("rename -witness", file=f)
-        print("opt_clean", file=f)
+        # print("opt_clean", file=f)
         print(f"write_rtlil {modeldir}/{top}.il", file=f)
         if cfg.dump_dot_circuits:
             print(f"select -module \\{top}", file=f)
@@ -120,6 +120,7 @@ Node = ys.Cell | ys.SigBit
 class ModuleDependencyGraph:
     # Adjacency relation: module instance c1 depends on c2 if c2 in deps[c1].
     deps: dict[ys.Cell, list[ys.Cell]]
+    module: ys.Module
 
     # fill/line colours used for the node kinds of the .dot export
     _DOT_NODE_STYLES: dict[str, str] = field(
@@ -168,9 +169,9 @@ class ModuleDependencyGraph:
 
     def __str__(self):
         s = ""
-        for cell in self.deps:
-            s += f"{cell.name} depends on:\n"
-            for dep_cell in self.deps[cell]:
+        for name in sorted([str(name) for name in self.deps.keys()]):
+            s += f"{name} depends on:\n"
+            for dep_cell in self.deps[self.module.cell(name)]:
                 s += f"\t{dep_cell}\n"
         return s
 
@@ -351,7 +352,7 @@ class CellGraph:
         for cell in itertools.chain(instance_cells):
             # Get the sigbits of input signals of cell (discard if not a wire)
             input_sigspecs = [
-                list(conn.bits()) if conn.is_wire() else None
+                list(conn.bits()) if conn.is_bit() or conn.is_wire() else None
                 for (conn_name, conn) in cell.connections_.items()
                 if cell.input(conn_name)
             ]
@@ -368,7 +369,7 @@ class CellGraph:
                 )
             )
             deps[cell] = cell_deps
-        return ModuleDependencyGraph(deps)
+        return ModuleDependencyGraph(deps, self.top_module)
 
 
 def get_cell_graphs(

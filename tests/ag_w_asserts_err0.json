@@ -1,0 +1,28 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv ag_w_asserts.sv"
+    ],
+    "files": [
+      "ag_w_asserts.sv"
+    ],
+    "objectives": [
+      {
+        "top": "main",
+        "tactic": {
+          "name": "assume_guarantee",
+          "submodules": [
+            {
+              "top": "subm"
+            }
+          ],
+          "instances": [
+            "s1",
+            "top_assumption1",
+            "intermediate_assert2"
+          ]
+        }
+      }
+    ]
+  }
+}

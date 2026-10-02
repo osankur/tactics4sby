@@ -131,34 +131,45 @@ class SbyScript:
                 else set(objective.tactic.submodules.keys())
             )
 
+            participating_assert_names = set()
+            participating_submodules_instances: set[str] = set()
+            user_defined_cell_names = set(str(cell.name) for cell in user_defined_cells)
             if objective.tactic.instances:
-                user_defined_cell_names = set(
-                    str(cell.name) for cell in user_defined_cells
-                )
                 for inst in objective.tactic.instances:
                     if f"\\{inst}" not in user_defined_cell_names:
                         raise Exception(
                             f"{objective.tactic.json_path}: no instance {inst} found in module {objective.top})"
                         )
                     inst_cell = cg[objective.top].top_module.cell(f"\\{inst}")
-                    if (
-                        inst_cell.type != "$assert$"
-                        and _strip_backslash(inst_cell.module.name)
-                        not in all_module_names
+                    if inst_cell.type == "$assert":
+                        participating_assert_names.add(inst)
+                    elif (
+                        inst_cell.type[0] == "\\"
+                        and _strip_backslash(inst_cell.type) in all_submodule_names
                     ):
+                        if (
+                            _strip_backslash(inst_cell.type)
+                            not in participating_submodule_names
+                        ):
+                            raise Exception(
+                                f"{objective.tactic.json_path}: {inst} is an instance of {inst_cell.type} but this module is not specified in the submodules field"
+                            )
+                        participating_submodules_instances.add(inst)
+                    else:
                         raise Exception(
                             f"{objective.tactic.json_path}: {inst} is neither a module instance or an assert"
                         )
+            else:
+                for cell in user_defined_cells:
+                    if cell.type[0] == "\\":
+                        cell_type = _strip_backslash(cell.type)
+                        if cell_type in participating_submodule_names:
+                            participating_submodules_instances.add(
+                                _strip_backslash(cell.name)
+                            )
 
             # instances whose modules appear in participating_submodules
-            participating_submodules_instances: set[str] = set()
-            for cell in user_defined_cells:
-                if cell.type[0] == "\\":
-                    cell_type = _strip_backslash(cell.type)
-                    if cell_type in participating_submodule_names:
-                        participating_submodules_instances.add(
-                            _strip_backslash(cell.name)
-                        )
+            # participating_submodules_instances: set[str] = set()
 
             if objective.tactic.instances:
                 participating_instance_names = tuple(objective.tactic.instances)
@@ -185,6 +196,9 @@ class SbyScript:
             logger.debug(
                 f"\tAll instances of the participating submodules: {participating_submodules_instances}"
             )
+            logger.debug(
+                f"\tAll participating top asserts: {participating_assert_names}"
+            )
             logger.debug(f"\tInlined: {inlined_instance_names}")
             logger.debug(f"\tDecomposed: {participating_instance_names}")
 
@@ -203,6 +217,7 @@ class SbyScript:
                     cg[objective.top].top_module.cell(f"\\{name}")
                     for name in participating_instance_names
                 )
+
             logger.debug(
                 f"\tAssume-guarantee order (auto: {objective.tactic.auto}): {[inst.name for inst in ordered_instances]}"
             )
@@ -251,9 +266,20 @@ class SbyScript:
                     "flatten",
                     "# Remove all unmarked check cells:",
                     "chformal -remove -assume -assert a:_ag_vc_flattened=1 a:_ag_vc_top=1 %u %n",
-                    "# Remove all assumptions of submodules and convert asserts into assumes",
+                    "# Remove all assumptions of submodules and convert submodules' asserts into assumes",
                     "chformal -remove -assume a:_ag_vc_flattened=1",
                     "chformal -assert -assert2assume a:_ag_vc_flattened=1",
+                ]
+            )
+            if participating_assert_names:
+                top_ag_script.extend(
+                    [
+                        "# Also convert any top-level asserts among instances to assumes",
+                        f"chformal -assert -assert2assume {' '.join([objective.top + '/' + name for name in participating_assert_names])}",
+                    ]
+                )
+            top_ag_script.extend(
+                [
                     "log Remaining assumes for this VC:",
                     "select r:FLAVOR=assume -list",
                     "log Remaining asserts for this VC:",
