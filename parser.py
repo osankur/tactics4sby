@@ -9,7 +9,6 @@ from typing import Any, ClassVar, NoReturn
 
 __all__ = [
     "ProofStrategyError",
-    "ModuleContract",
     "Tactic",
     "AssumeGuaranteeTactic",
     "InductiveAssumeGuaranteeTactic",
@@ -22,14 +21,6 @@ __all__ = [
     "parse_string",
     "parse_dict",
 ]
-
-
-@dataclass(frozen=True)
-class ModuleContract:
-    """An assume-guarantee contract. ``asserts`` must be a subset of assertions, and ``assumes`` a subset of assumes in the given module."""
-
-    asserts: list[str] | None = None
-    assumes: list[str] | None = None
 
 
 class ProofStrategyError(ValueError):
@@ -204,6 +195,13 @@ class ProofStrategy:
     source: Path | None = field(default=None, compare=False)
     json_path: str = field(default="", compare=False)
     multiclock: bool = False
+
+    # TODO The following four fields are new
+    early_assume: bool = False
+    early_assert: bool = False
+    script: tuple[str, ...] = field(default_factory=lambda: tuple())
+    options: tuple[str, ...] = DEFAULT_OPTIONS
+    engines: tuple[str, ...] = DEFAULT_ENGINES
 
 
 # --------------------------------------------------------------------------- #

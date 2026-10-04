@@ -115,7 +115,7 @@ def test_cli_strategy0_ag_vc(workdir: Path):
     )
     result = run_sby("-f", str(workdir / "strategy0.sby"), cwd=workdir)
     assert result.returncode == 0, sby_output(result)
-    main_log = (workdir / "strategy0__vc_main_top/model/design.log").read_text(
+    main_log = (workdir / "strategy0__vc_main_ag_top/model/design.log").read_text(
         encoding="utf-8"
     )
     # The proof of the top module leaves top assume and asserts, and converts submodules asserts to assumes
@@ -127,7 +127,7 @@ Remaining asserts for this VC:
 main/top_property1"""
         in main_log
     )
-    s1_log = (workdir / "strategy0__vc_main_s1_/model/design.log").read_text(
+    s1_log = (workdir / "strategy0__vc_main_ag_s1_/model/design.log").read_text(
         encoding="utf-8"
     )
     # The proof of the instance s1 removes top asserts, removes s1's asserts, and converts s1's assumes to assert
@@ -161,7 +161,7 @@ def test_cli_strategy2_ag_vc(workdir: Path):
     )
     result = run_sby("-f", str(workdir / "strategy2.sby"), cwd=workdir)
     assert result.returncode == 0, sby_output(result)
-    main_log = (workdir / "strategy2__vc_main_top/model/design.log").read_text(
+    main_log = (workdir / "strategy2__vc_main_ag_top/model/design.log").read_text(
         encoding="utf-8"
     )
     # The proof of the top module leaves top assume and asserts, and converts submodules asserts to assumes
@@ -179,7 +179,7 @@ main/top_assert
 main/\$assume\$module_dep2\.sv:[^\n]*
 Remaining asserts for this VC:
 main/s1\.subm_assume1"""
-    s1_log = (workdir / "strategy2__vc_main_s1_/model/design.log").read_text(
+    s1_log = (workdir / "strategy2__vc_main_ag_s1_/model/design.log").read_text(
         encoding="utf-8"
     )
     assert re.search(s1_pattern, s1_log), s1_log
@@ -190,7 +190,7 @@ main/\$flatten\\s1\.\$assert\$module_dep2\.sv:[^\n]*
 main/\$assume\$module_dep2\.sv:[^\n]*
 Remaining asserts for this VC:
 main/s2\.subm_assume1"""
-    s2_log = (workdir / "strategy2__vc_main_s2_/model/design.log").read_text(
+    s2_log = (workdir / "strategy2__vc_main_ag_s2_/model/design.log").read_text(
         encoding="utf-8"
     )
     assert re.search(s2_pattern, s2_log), s2_log

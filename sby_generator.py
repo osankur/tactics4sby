@@ -2,8 +2,7 @@ import sys
 from typing import TextIO
 import copy
 import dataclasses
-from dataclasses import dataclass
-from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from logger import logger
@@ -14,45 +13,158 @@ from cell_graph import _strip_backslash, CellGraph
 
 
 @dataclass
-class SbyTask:
+class VerificationCondition:
+    # TODO Change this if a module contains this
+    VC_PREFIX = "_vc_"
     name: str
-    groups: list[str]
+    tactic: str
+    children: list["VerificationCondition"] = field(default_factory=lambda: [])
+    options: list[str] = field(default_factory=lambda: [])
+    engines: list[str] = field(default_factory=lambda: [])
+    script: list[str] = field(default_factory=lambda: [])
+
+    def __post_init__(self):
+        self.name = f"{self.VC_PREFIX}{self.name}"
 
 
 @dataclass
 class SbyScript:
+    options: list[str]
+    engines: list[str]
+    script: list[str]
+    files: list[str]
+    vcs: list[VerificationCondition]
+
+    DEFAULT_OPTIONS: tuple[str, ...] = ("mode prove",)
+    DEFAULT_ENGINES: tuple[str, ...] = ("smtbmc",)
+
+    def dump(self, f: TextIO | None = None):
+        """Write the .sby file to an already open file object ``f`` (e.g. an
+        open file or ``sys.stdout``)."""
+        if f is None:
+            f = sys.stdout
+
+        section_options = copy.copy(self.options)
+        section_script = copy.copy(self.script)
+        section_engines = copy.copy(self.engines)
+        section_tasks = []
+
+        def add_group(group_name: str, group_content: list[str], section: list[str]):
+            if group_content:
+                if len(group_content) == 1:
+                    section.append(f"{group_name}: {group_content[0]}")
+                else:
+                    section.append(f"{group_name}:")
+                    section.extend(group_content)
+                    section.append("--")
+
+        def traverse(
+            vc: VerificationCondition,
+            parent_groups: list[str],
+            specified_options: bool,
+            specified_engines: bool,
+        ):
+            """
+            either there is a global options & engines, or each task must specify these
+            """
+            add_group(vc.name, vc.options, section_options)
+            add_group(vc.name, vc.script, section_script)
+            add_group(vc.name, vc.engines, section_engines)
+            if vc.children == []:
+                section_tasks.append(f"{vc.name} {' '.join(parent_groups)}")
+                if not specified_options:
+                    add_group(vc.name, list(self.DEFAULT_OPTIONS), section_options)
+                if not specified_engines:
+                    add_group(vc.name, list(self.DEFAULT_ENGINES), section_engines)
+            else:
+                next_parent_groups = (
+                    [vc.name] + parent_groups
+                    if vc.options or vc.script or vc.engines
+                    else parent_groups
+                )
+                for subvc in vc.children:
+                    traverse(
+                        subvc,
+                        next_parent_groups,
+                        specified_options or vc.options != [],
+                        specified_engines or vc.engines != [],
+                    )
+
+        for vc in self.vcs:
+            traverse(vc, [], self.options == [], self.engines == [])
+
+        def print_section(name: str, content: list[str]):
+            print(f"[{name}]", file=f)
+            for line in content:
+                print(line, file=f)
+            print("", file=f)
+
+        print_section("tasks", section_tasks)
+        print_section("options", section_options)
+        print_section("engines", section_engines)
+        print_section("script", section_script)
+        print_section("files", self.files)
+
+    def __str__(self):
+        lines = ["SbyScript:"]
+
+        def add_section(title: str, values: list[str]) -> None:
+            lines.append(f"  {title}:")
+            if values:
+                lines.extend(f"    {value}" for value in values)
+            else:
+                lines.append("    (none)")
+
+        add_section("Options", self.options)
+        add_section("Engines", self.engines)
+        add_section("Script", self.script)
+        lines.append("  Verification conditions:")
+
+        def add_vc(vc: VerificationCondition, indent: int) -> None:
+            prefix = " " * indent
+            lines.append(f"{prefix}{vc.name} (tactic: {vc.tactic})")
+            for child in vc.children:
+                add_vc(child, indent + 2)
+
+        if self.vcs:
+            for vc in self.vcs:
+                add_vc(vc, 4)
+        else:
+            lines.append("    (none)")
+
+        return "\n".join(lines)
+
+
+@dataclass
+class SbyGenerator:
     strategy: parser.ProofStrategy
     cfg: configuration.Configuration
     verbose: bool = False
     verbose_yosys: bool = False
 
-    DEFAULT_OPTION = "mode prove"
-    DEFAULT_ENGINE = "smtbmc"
-
-    tasks: list[SbyTask] = dataclasses.field(default_factory=list)
-    options: dict[str, list[str]] = dataclasses.field(
-        default_factory=lambda: {"": [SbyScript.DEFAULT_OPTION]}
-    )
-    engine: dict[str, list[str]] = dataclasses.field(
-        default_factory=lambda: {"": [SbyScript.DEFAULT_ENGINE]}
-    )
-    script: list[tuple[str, list[str]]] = dataclasses.field(default_factory=list)
-
-    # module contract proofs that have already been generated:
-    _processed_modules: set[str] = dataclasses.field(default_factory=set)
+    vcs: list[VerificationCondition] = field(default_factory=lambda: [])
 
     # task and group names used so far
     _task_and_group_names: set[str] = dataclasses.field(default_factory=set)
 
-    # maps each task to its dependencies (typically its verification conditions)
-    _task_dependencies: dict[str, list[str]] = dataclasses.field(default_factory=dict)
+    # Inserted after file reads for each objective
+    GLOBAL_SCRIPT = ["chformal -remove -cover -live"]
 
-    def __post_init__(self):
+    def build(self) -> SbyScript:
+        toplevel_script = list(self.strategy.script)
+        toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
-            self.options[""] = ["multiclock on"]
+            toplevel_options.append("multiclock on")
         proven_tops = {o.top for o in self.strategy.objectives}
         for objective in self.strategy.objectives:
             self.process_objective(objective, proven_tops)
+        return SbyScript(
+            toplevel_options,
+            list(self.strategy.engines),
+            toplevel_script,
+            list(self.strategy.files),
+            self.vcs,
+        )
 
     def _get_task_or_group_name(self, name: str) -> str:
         counter = 0
@@ -62,24 +174,20 @@ class SbyScript:
         self._task_and_group_names.add(name)
         return name
 
-    def add_task(self, task: str, groups: list[str], parent_tasks: list[str] = []):
-        self.tasks.append(SbyTask(task, groups))
-        for parent in parent_tasks:
-            self._task_dependencies.setdefault(parent, []).append(task)
-
     def process_tactic(
         self,
-        tactic: parser.Tactic,
-        parent_task: str,
-        task_script: list[str],
-        task_groups: list[str],
+        tactic: parser.Tactic | None,
+        vc_path: str,
         cg: dict[str, CellGraph],
         parent_objective: parser.Objective,
         proven_tops: set[str],
-    ):
+    ) -> list[VerificationCondition]:
         """
-        Explore the tactic tree recursively, and produce tasks at each leaf
+        Explore the tactic tree recursively returning a list of VerificationCondition objects which are premises of this tactic.
         """
+        vcs = []
+        if tactic is None:
+            return []
         if isinstance(tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
                 str(_strip_backslash(str(k)))
@@ -226,9 +334,8 @@ class SbyScript:
                     )
                 return script
 
-            top_ag_task = self._get_task_or_group_name(f"_vc_{parent_task}_top")
+            top_ag_task = self._get_task_or_group_name(f"{vc_path}_ag_top")
             top_ag_script = [
-                "chformal -remove -cover -live",
                 "# Mark check cells at the top level:",
                 f"setattr -set _ag_vc_top 1 {parent_objective.top}/* t:$check %i",
                 "# Flatten cells participating to assume-guarantee:",
@@ -281,9 +388,23 @@ class SbyScript:
                 ]
             )
 
-            # TODO Process subtactics recursively
-            self.script.append((top_ag_task, top_ag_script))
-            self.add_task(top_ag_task, copy.copy(task_groups), [])
+            children = self.process_tactic(
+                tactic.tactic,
+                top_ag_task,
+                cg,
+                parent_objective,
+                proven_tops,
+            )
+            vcs.append(
+                VerificationCondition(
+                    top_ag_task,
+                    f"{tactic.tactic.__class__.__name__}",
+                    children,
+                    list(tactic.options),
+                    list(tactic.engines),
+                    script=top_ag_script,
+                )
+            )
 
             previous_cells = []
             next_cells = copy.copy(ordered_instances)
@@ -291,10 +412,9 @@ class SbyScript:
                 cell = next_cells.pop(0)
                 cell_name = _strip_backslash(cell.name)
                 inst_ag_task = self._get_task_or_group_name(
-                    f"_vc_{parent_task}_{cell_name}_"
+                    f"{vc_path}_ag_{cell_name}_"
                 )
                 inst_ag_script = [
-                    "chformal -remove -cover -live",
                     "# Remove all top-level asserts and flatten:",
                     f"chformal -assert -remove {parent_objective.top}/*",
                     "# Mark assume cells at the top level:",
@@ -345,11 +465,29 @@ class SbyScript:
                     ]
                 )
 
-                # TODO Process subtactics recursively
-                self.script.append((inst_ag_task, inst_ag_script))
-                self.add_task(inst_ag_task, copy.copy(task_groups), [parent_task])
-
+                children = self.process_tactic(
+                    inst.tactic,
+                    inst_ag_task,
+                    cg,
+                    parent_objective,
+                    proven_tops,
+                )
+                vcs.append(
+                    VerificationCondition(
+                        inst_ag_task,
+                        f"{inst.tactic.__class__.__name__}",
+                        children,
+                        list(inst.tactic.options)
+                        if inst.tactic and inst.tactic.options
+                        else [],
+                        list(inst.tactic.engines)
+                        if inst.tactic and inst.tactic.engines
+                        else [],
+                        inst_ag_script,
+                    )
+                )
                 previous_cells.append(cell)
+            return vcs
         elif isinstance(tactic, parser.CutpointTactic):
             raise Exception("Not implemented")
         elif isinstance(tactic, parser.SplitTactic):
@@ -357,19 +495,9 @@ class SbyScript:
         else:
             raise Exception(f"Unknown tactic {type(tactic)}")
 
-    def process_objective(
-        self, objective: parser.Objective, proven_tops: set[str]
-    ) -> list[parser.Objective]:
-        """Generate tasks and subtasks for this objective, and return the list of objectives that appear in the subtree.
-
-        Returns a list of further objectives to be processed.
-        """
+    def process_objective(self, objective: parser.Objective, proven_tops: set[str]):
         logger.debug(f"Processing objective {objective.json_path:} {objective.top}")
-        if objective.top in self._processed_modules:
-            return []
-        self._processed_modules.add(objective.top)
 
-        new_objectives = []
         cg: dict[str, CellGraph] = cell_graph.get_cell_graphs(
             self.strategy.header,
             objective.top,
@@ -377,58 +505,30 @@ class SbyScript:
             self.cfg,
         )
 
-        main_common_task = self._get_task_or_group_name(f"_{objective.top}_common")
         objective_script = [line for line in self.strategy.header]
         objective_script.extend([f"hierarchy -top {objective.top}", "proc"])
+        objective_script.extend(self.GLOBAL_SCRIPT)
+        # FIXME Move this to top-level, outside of objectives
         if objective.early_assert or objective.early_assume:
             objective_script.append(
                 "chformal -early -assert "
                 + ("-assume" if objective.early_assume else "")
             )
-        self.script.append((main_common_task, objective_script))
 
-        if objective.tactic is None:
-            self.add_task(objective.top, [main_common_task])
-        else:
-            self.process_tactic(
-                objective.tactic,
+        children = self.process_tactic(
+            objective.tactic,
+            objective.top,
+            cg,
+            objective,
+            proven_tops,
+        )
+        self.vcs.append(
+            VerificationCondition(
                 objective.top,
+                f"{objective.tactic.__class__.__name__}",
+                children,
                 [],
-                [main_common_task],
-                cg,
-                objective,
-                proven_tops,
+                [],
+                objective_script,
             )
-        return new_objectives
-
-    def dump(self, f: TextIO | None = None):
-        """Write the .sby file to an already open file object ``f`` (e.g. an
-        open file or ``sys.stdout``)."""
-        if f is None:
-            f = sys.stdout
-
-        def _dump_dict(content: dict[str, list[str]], f):
-            if "" in content:
-                print("\n".join(content[""]), file=f)
-            for group, opt in content.items():
-                if group:
-                    print(f"{group}:", file=f)
-                    print("\n".join(opt), file=f)
-                    print("--", file=f)
-            print("", file=f)
-
-        print("[tasks]", file=f)
-        for task in self.tasks:
-            print(f"{task.name} {' '.join(task.groups)}", file=f)
-        print("", file=f)
-        print("[options]", file=f)
-        _dump_dict(self.options, f)
-        print("[engines]", file=f)
-        _dump_dict(self.engine, f)
-        print("[script]", file=f)
-        for group, content in self.script:
-            print(f"{group}:", file=f)
-            print("\n".join(content), file=f)
-            print("--", file=f)
-        print("[files]", file=f)
-        print("\n".join(self.strategy.files), file=f)
+        )

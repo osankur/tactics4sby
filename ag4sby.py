@@ -117,14 +117,15 @@ def main(argv: list[str] | None = None) -> int:
         strategy = parser.parse_file(strategy_path)
         if args.summarize:
             logger.info(parser.summarize(strategy))
-        generator = sby_generator.SbyScript(strategy, cfg)
+        generator = sby_generator.SbyGenerator(strategy, cfg)
+        sby = generator.build()
         sby_file = cfg.basedir / (strategy_path.stem + ".sby")
-
+        print(sby)
         if sby_file.exists() and not args.force:
             raise FileExistsError(f"{sby_file} already exists; use -f to overwrite it")
 
         with open(sby_file, "w") as f:
-            generator.dump(f)
+            sby.dump(f)
         logger.info(f"Generated proof strategy into {sby_file}")
         run_sby(sby_file)
     except Exception as exc:
