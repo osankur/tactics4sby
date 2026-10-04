@@ -258,7 +258,6 @@ class CellGraph:
     _sigmap: ys.SigMap
 
     _module_dependencies: dict[ys.Cell, set[ys.Cell]] | None
-    _module_contract_mask: parser.ModuleContract
 
     def __init__(self, top_module: ys.Module):
         self.design = top_module.design
@@ -270,7 +269,6 @@ class CellGraph:
         self.assert_cells = set()
         self.submodule_instance_cells = set()
         self._module_dependencies = None
-        self._module_contract_mask = parser.ModuleContract()
         module_names = set(top_module.design.modules_.keys())
         for cell in top_module.cells_.values():
             if cell.type == "$assert":

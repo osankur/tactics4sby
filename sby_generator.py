@@ -10,7 +10,7 @@ from logger import logger
 import parser
 import cell_graph
 import configuration
-from cell_graph import _strip_backslash
+from cell_graph import _strip_backslash, CellGraph
 
 
 @dataclass
@@ -50,10 +50,9 @@ class SbyScript:
     def __post_init__(self):
         if self.strategy.multiclock:
             self.options[""] = ["multiclock on"]
-        objective_queue = deque(self.strategy.objectives)
-        while objective_queue:
-            obj = objective_queue.popleft()
-            objective_queue.extend(self.process_objective(obj))
+        proven_tops = {o.top for o in self.strategy.objectives}
+        for objective in self.strategy.objectives:
+            self.process_objective(objective, proven_tops)
 
     def _get_task_or_group_name(self, name: str) -> str:
         counter = 0
@@ -68,158 +67,139 @@ class SbyScript:
         for parent in parent_tasks:
             self._task_dependencies.setdefault(parent, []).append(task)
 
-    def process_objective(self, objective: parser.Objective) -> list[parser.Objective]:
-        """Generate tasks and subtasks for this objective, and return the list of objectives that appear in the subtree.
-
-        Groups generated for the assume_guarantee tactic:
-        - ``top``               : remove all submodule instances (except those inlined) by applying cutpoint on their outputs
-        - _vc_``top``_top       : flatten, then remove submodule assumptions, and convert their assertions into assumptions
-                                  then prove the top module's contract
-        - _vc_``top``_``inst``  : focus on one instance; remove all other instances' assumptions, assume previous instances assertions,
-                                  and remove next instances assertions; prove the current instance assumption
-
-        Returns a list of further objectives to be processed.
+    def process_tactic(
+        self,
+        tactic: parser.Tactic,
+        parent_task: str,
+        task_script: list[str],
+        task_groups: list[str],
+        cg: dict[str, CellGraph],
+        parent_objective: parser.Objective,
+        proven_tops: set[str],
+    ):
         """
-        logger.debug(f"Processing objective {objective.json_path:} {objective.top}")
-        if objective.top in self._processed_modules:
-            return []
-        self._processed_modules.add(objective.top)
-
-        new_objectives = []
-        cg = cell_graph.get_cell_graphs(
-            self.strategy.header, objective.top, self.strategy.multiclock, self.cfg
-        )
-
-        main_task = self._get_task_or_group_name(
-            objective.top if objective.top else "objective"
-        )
-        objective_script = [line for line in self.strategy.header]
-        objective_script.extend([f"hierarchy -top {objective.top}", "proc"])
-        if objective.early_assert or objective.early_assume:
-            objective_script.append(
-                "chformal -early -assert "
-                + ("-assume" if objective.early_assume else "")
-            )
-        self.script.append((main_task, objective_script))
-
-        if objective.tactic is None:
-            self.add_task(main_task, [])
-        elif isinstance(objective.tactic, parser.AssumeGuaranteeTactic):
+        Explore the tactic tree recursively, and produce tasks at each leaf
+        """
+        if isinstance(tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
-                str(_strip_backslash(str(k))) for k in cg[objective.top].design.modules_
+                str(_strip_backslash(str(k)))
+                for k in cg[parent_objective.top].design.modules_
             )
             user_defined_cells = list(
                 filter(
-                    lambda cell: cell.name[0] == "\\",
-                    cg[objective.top].top_module.cells_.values(),
+                    lambda cell: cell.name[0] == "\\"
+                    and (cell.type[0] == "\\" or cell.type[0] == "$assert"),
+                    cg[parent_objective.top].top_module.cells_.values(),
                 )
+            )
+            user_defined_module_instance_cells = list(
+                filter(lambda cell: cell.type[0] == "\\", user_defined_cells)
+            )
+            user_defined_cell_names = set(
+                _strip_backslash(cell.name) for cell in user_defined_cells
             )
             all_submodule_names = all_module_names & set(
                 _strip_backslash(str(cell.type))
                 for cell in user_defined_cells
                 if cell.type[0] == "\\"
             )
-            if objective.tactic.submodules is not None:
-                assert set(objective.tactic.submodules.keys()).issubset(
-                    all_submodule_names
-                ), (
-                    f"Following modules do not appear inside module {objective.top}: {set(objective.tactic.submodules.keys()).difference(all_submodule_names)}"
+
+            instances = (
+                tactic.instances
+                if tactic.instances
+                else tuple(
+                    parser.Instance(name=name, tactic=tactic.tactic)
+                    for name in all_submodule_names
                 )
-            participating_submodule_names = (
-                all_submodule_names
-                if objective.tactic.submodules is None
-                else set(objective.tactic.submodules.keys())
             )
 
-            participating_assert_names = set()
-            participating_submodules_instances: set[str] = set()
-            user_defined_cell_names = set(str(cell.name) for cell in user_defined_cells)
-            if objective.tactic.instances:
-                for inst in objective.tactic.instances:
-                    if f"\\{inst}" not in user_defined_cell_names:
-                        raise Exception(
-                            f"{objective.tactic.json_path}: no instance {inst} found in module {objective.top})"
-                        )
-                    inst_cell = cg[objective.top].top_module.cell(f"\\{inst}")
+            inline_names = set()
+            if tactic.inline:
+                assert tactic.auto
+                inline_names = set(tactic.inline)
+            participating_names = []
+            participating_assert_names = []
+            participating_submodule_instance_names = []
+            for inst in instances:
+                if inst.name in user_defined_cell_names:
+                    # the cell name appears in inline
+                    if inst.name in inline_names:
+                        continue
+                    inst_cell = cg[parent_objective.top].top_module.cell(
+                        f"\\{inst.name}"
+                    )
                     if inst_cell.type == "$assert":
-                        participating_assert_names.add(inst)
+                        participating_assert_names.append(inst.name)
+                        participating_names.append(inst.name)
                     elif (
                         inst_cell.type[0] == "\\"
                         and _strip_backslash(inst_cell.type) in all_submodule_names
                     ):
-                        if (
-                            _strip_backslash(inst_cell.type)
-                            not in participating_submodule_names
-                        ):
+                        participating_submodule_instance_names.append(inst.name)
+                        participating_names.append(inst.name)
+                        if _strip_backslash(inst_cell.type) not in proven_tops:
                             raise Exception(
-                                f"{objective.tactic.json_path}: {inst} is an instance of {inst_cell.type} but this module is not specified in the submodules field"
+                                f"{tactic.json_path}: {inst.name} is an instance of module {_strip_backslash(inst_cell.type)} but there is no objective for this module."
                             )
-                        participating_submodules_instances.add(inst)
                     else:
                         raise Exception(
-                            f"{objective.tactic.json_path}: {inst} is neither a module instance or an assert"
+                            f"{tactic.json_path}: {inst.name} (of type {inst_cell.type}) is neither a module instance or an assert"
                         )
-            else:
-                for cell in user_defined_cells:
-                    if cell.type[0] == "\\":
-                        cell_type = _strip_backslash(cell.type)
-                        if cell_type in participating_submodule_names:
-                            participating_submodules_instances.add(
-                                _strip_backslash(cell.name)
-                            )
-
-            # instances whose modules appear in participating_submodules
-            # participating_submodules_instances: set[str] = set()
-
-            if objective.tactic.instances:
-                participating_instance_names = tuple(objective.tactic.instances)
-                inlined_instance_names = tuple(
-                    participating_submodules_instances
-                    - set(participating_instance_names)
-                )
-            elif objective.tactic.inline:
-                assert objective.tactic.auto
-                inlined_instance_names = tuple(objective.tactic.inline)
-                participating_instance_names = tuple(
-                    participating_submodules_instances - set(inlined_instance_names)
-                )
-            else:
-                inlined_instance_names = []
-                participating_instance_names = participating_submodules_instances
+                elif inst.name in all_submodule_names:
+                    # the module name appears in inline
+                    if inst.name in inline_names:
+                        continue
+                    if inst.name not in proven_tops:
+                        raise Exception(
+                            f"{tactic.json_path}: Instances of module {inst.name} appear here but there is no objective for this module."
+                        )
+                    for cell in user_defined_module_instance_cells:
+                        if _strip_backslash(cell.type) == inst.name:
+                            cell_name = _strip_backslash(cell.name)
+                            # the cell name appears in inline
+                            if cell_name in inline_names:
+                                continue
+                            participating_submodule_instance_names.append(cell_name)
+                            participating_names.append(_strip_backslash(cell.name))
+                else:
+                    raise Exception(
+                        f"{tactic.json_path}: No module, module instance, or assert found with name  {inst.name}"
+                    )
 
             logger.debug(
-                f"{objective.top}: Generating assume-guarantee verification conditions"
+                f"{parent_objective.top}: Generating assume-guarantee verification conditions"
             )
             logger.debug(
-                f"\tFollowing submodules participate in assume-guarantee decomposition: {participating_submodule_names}"
-            )
-            logger.debug(
-                f"\tAll instances of the participating submodules: {participating_submodules_instances}"
+                f"\tParticipating submodule instances: {participating_submodule_instance_names}"
             )
             logger.debug(
                 f"\tAll participating top asserts: {participating_assert_names}"
             )
-            logger.debug(f"\tInlined: {inlined_instance_names}")
-            logger.debug(f"\tDecomposed: {participating_instance_names}")
+            logger.debug(f"\tInlined: {inline_names}")
 
-            if objective.tactic.auto:
-                depgraph = cg[objective.top].get_module_dependency_graph(
-                    set(participating_instance_names)
+            if tactic.auto:
+                depgraph = cg[parent_objective.top].get_module_dependency_graph(
+                    set(participating_names)
                 )
                 logger.debug(f"\tInstance dependency relation:\n{depgraph}")
                 if self.cfg.verbosity >= 2:
                     depgraph.write_module_dependencies_to_dot(
-                        Path((self.cfg.tmpdir / (f"instance_deps_{objective.top}.dot")))
+                        Path(
+                            (
+                                self.cfg.tmpdir
+                                / (f"instance_deps_{parent_objective.top}.dot")
+                            )
+                        )
                     )
                 ordered_instances = depgraph.get_topological_ordering()
             else:
                 ordered_instances = list(
-                    cg[objective.top].top_module.cell(f"\\{name}")
-                    for name in participating_instance_names
+                    cg[parent_objective.top].top_module.cell(f"\\{name}")
+                    for name in participating_names
                 )
 
             logger.debug(
-                f"\tAssume-guarantee order (auto: {objective.tactic.auto}): {[inst.name for inst in ordered_instances]}"
+                f"\tAssume-guarantee order (auto: {tactic.auto}): {[inst.name for inst in ordered_instances]}"
             )
 
             def _mark_level1_child_check_cells(cells, attribute: str) -> list[str]:
@@ -233,28 +213,28 @@ class SbyScript:
                     for inst_cell in cg[submodule_name].submodule_instance_cells:
                         inst_cell_name = _strip_backslash(inst_cell.name)
                         exclude_list.append(
-                            f"{objective.top}/{cell_name}.{inst_cell_name}.*"
+                            f"{parent_objective.top}/{cell_name}.{inst_cell_name}.*"
                         )
                         exclude_list.extend(
                             [
-                                f"{objective.top}/$flatten\\{cell_name}.{inst_cell_name}.*",
-                                f"{objective.top}/$flatten\\{cell_name}.\\{inst_cell_name}.*",
+                                f"{parent_objective.top}/$flatten\\{cell_name}.{inst_cell_name}.*",
+                                f"{parent_objective.top}/$flatten\\{cell_name}.\\{inst_cell_name}.*",
                             ]
                         )
                     script.append(
-                        f"setattr -set _ag_vc_flattened 1 {objective.top}/{cell_name}.* {objective.top}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} {'%d' if exclude_list else ''}"
+                        f"setattr -set _ag_vc_flattened 1 {parent_objective.top}/{cell_name}.* {parent_objective.top}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} {'%d' if exclude_list else ''}"
                     )
                 return script
 
-            top_ag_task = self._get_task_or_group_name(f"_vc_{main_task}_top")
+            top_ag_task = self._get_task_or_group_name(f"_vc_{parent_task}_top")
             top_ag_script = [
                 "chformal -remove -cover -live",
                 "# Mark check cells at the top level:",
-                f"setattr -set _ag_vc_top 1 {objective.top}/* t:$check %i",
+                f"setattr -set _ag_vc_top 1 {parent_objective.top}/* t:$check %i",
                 "# Flatten cells participating to assume-guarantee:",
                 "flatten "
                 + " ".join(
-                    [f"{objective.top}/{s}" for s in participating_instance_names]
+                    [f"{parent_objective.top}/{s}" for s in participating_names]
                 ),
                 "# Mark all check cells of flattened submodules at level 1 but not below:",
             ]
@@ -275,7 +255,7 @@ class SbyScript:
                 top_ag_script.extend(
                     [
                         "# Also convert any top-level asserts among instances to assumes",
-                        f"chformal -assert -assert2assume {' '.join([objective.top + '/' + name for name in participating_assert_names])}",
+                        f"chformal -assert -assert2assume {' '.join([parent_objective.top + '/' + name for name in participating_assert_names])}",
                     ]
                 )
             top_ag_script.extend(
@@ -290,19 +270,20 @@ class SbyScript:
 
             def _subcell_names_of_cell(cell) -> str:
                 if cell.type == "$assert":
-                    return f"{objective.top}/{_strip_backslash(cell.name)}"
+                    return f"{parent_objective.top}/{_strip_backslash(cell.name)}"
                 else:
-                    return f"{objective.top}/{_strip_backslash(cell.name)}.* {objective.top}/$flatten\\{_strip_backslash(cell.name)}.* %u"
+                    return f"{parent_objective.top}/{_strip_backslash(cell.name)}.* {parent_objective.top}/$flatten\\{_strip_backslash(cell.name)}.* %u"
 
             top_ag_script.extend(
                 [
-                    f"select -module {objective.top}",
-                    f"show -stretch -prefix {objective.top} -format svg",
+                    f"select -module {parent_objective.top}",
+                    f"show -stretch -prefix {parent_objective.top} -format svg",
                 ]
             )
+
+            # TODO Process subtactics recursively
             self.script.append((top_ag_task, top_ag_script))
-            # Task: disconnect submodules first (main_task), then prove the top contract
-            self.add_task(main_task, [top_ag_task], [])
+            self.add_task(top_ag_task, copy.copy(task_groups), [])
 
             previous_cells = []
             next_cells = copy.copy(ordered_instances)
@@ -310,14 +291,14 @@ class SbyScript:
                 cell = next_cells.pop(0)
                 cell_name = _strip_backslash(cell.name)
                 inst_ag_task = self._get_task_or_group_name(
-                    f"_vc_{main_task}_{cell_name}_"
+                    f"_vc_{parent_task}_{cell_name}_"
                 )
                 inst_ag_script = [
                     "chformal -remove -cover -live",
                     "# Remove all top-level asserts and flatten:",
-                    f"chformal -assert -remove {objective.top}/*",
+                    f"chformal -assert -remove {parent_objective.top}/*",
                     "# Mark assume cells at the top level:",
-                    f"setattr -set _ag_vc_top 1 {objective.top}/* t:$check %i",
+                    f"setattr -set _ag_vc_top 1 {parent_objective.top}/* t:$check %i",
                     "flatten",
                 ]
 
@@ -359,20 +340,64 @@ class SbyScript:
                         "select r:FLAVOR=assume -list",
                         "log Remaining asserts for this VC:",
                         "select r:FLAVOR=assert -list",
-                        f"select -module {objective.top}",
+                        f"select -module {parent_objective.top}",
                         f"show -stretch -prefix {inst_ag_task} -format svg",
                     ]
                 )
 
+                # TODO Process subtactics recursively
                 self.script.append((inst_ag_task, inst_ag_script))
-                self.add_task(inst_ag_task, [main_task], [main_task])
+                self.add_task(inst_ag_task, copy.copy(task_groups), [parent_task])
+
                 previous_cells.append(cell)
-            if objective.tactic.submodules:
-                for subm in objective.tactic.submodules.values():
-                    new_objectives.append(subm)
+        elif isinstance(tactic, parser.CutpointTactic):
+            raise Exception("Not implemented")
+        elif isinstance(tactic, parser.SplitTactic):
+            raise Exception("Not implemented")
         else:
-            raise Exception(
-                f"{objective.tactic.json_path}: only assume-guarantee tactic is currently supported"
+            raise Exception(f"Unknown tactic {type(tactic)}")
+
+    def process_objective(
+        self, objective: parser.Objective, proven_tops: set[str]
+    ) -> list[parser.Objective]:
+        """Generate tasks and subtasks for this objective, and return the list of objectives that appear in the subtree.
+
+        Returns a list of further objectives to be processed.
+        """
+        logger.debug(f"Processing objective {objective.json_path:} {objective.top}")
+        if objective.top in self._processed_modules:
+            return []
+        self._processed_modules.add(objective.top)
+
+        new_objectives = []
+        cg: dict[str, CellGraph] = cell_graph.get_cell_graphs(
+            self.strategy.header,
+            objective.top,
+            self.strategy.multiclock,
+            self.cfg,
+        )
+
+        main_common_task = self._get_task_or_group_name(f"_{objective.top}_common")
+        objective_script = [line for line in self.strategy.header]
+        objective_script.extend([f"hierarchy -top {objective.top}", "proc"])
+        if objective.early_assert or objective.early_assume:
+            objective_script.append(
+                "chformal -early -assert "
+                + ("-assume" if objective.early_assume else "")
+            )
+        self.script.append((main_common_task, objective_script))
+
+        if objective.tactic is None:
+            self.add_task(objective.top, [main_common_task])
+        else:
+            self.process_tactic(
+                objective.tactic,
+                objective.top,
+                [],
+                [main_common_task],
+                cg,
+                objective,
+                proven_tops,
             )
         return new_objectives
 

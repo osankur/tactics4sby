@@ -11,18 +11,15 @@
         "top": "main",
         "tactic": {
           "name": "assume_guarantee",
-          "submodules": [
-            {
-              "top": "subm"
-            }
-          ],
           "instances": [
-            "s_"
+            {
+              "name": "s_"
+            }
           ]
         }
       },
       {
-        "top": "main"
+        "top": "subm"
       }
     ]
   }

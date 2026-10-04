@@ -115,7 +115,9 @@ def test_cli_strategy0_ag_vc(workdir: Path):
     )
     result = run_sby("-f", str(workdir / "strategy0.sby"), cwd=workdir)
     assert result.returncode == 0, sby_output(result)
-    main_log = (workdir / "strategy0_main/model/design.log").read_text(encoding="utf-8")
+    main_log = (workdir / "strategy0__vc_main_top/model/design.log").read_text(
+        encoding="utf-8"
+    )
     # The proof of the top module leaves top assume and asserts, and converts submodules asserts to assumes
     assert (
         """Remaining assumes for this VC:
@@ -159,7 +161,9 @@ def test_cli_strategy2_ag_vc(workdir: Path):
     )
     result = run_sby("-f", str(workdir / "strategy2.sby"), cwd=workdir)
     assert result.returncode == 0, sby_output(result)
-    main_log = (workdir / "strategy2_main/model/design.log").read_text(encoding="utf-8")
+    main_log = (workdir / "strategy2__vc_main_top/model/design.log").read_text(
+        encoding="utf-8"
+    )
     # The proof of the top module leaves top assume and asserts, and converts submodules asserts to assumes
     # The asserts and the top assume are anonymous in this case
     main_pattern = r"""
@@ -230,22 +234,20 @@ def test_cli_strategies_w_errors(workdir: Path):
     result = run_main_program("-f", "strategy_err0.json", cwd=workdir)
     assert result.returncode != 0
     assert (
-        "Following modules do not appear inside module main: {'sub'}" in result.stderr
-    )
-    assert (
-        "Following modules do not appear inside module main: {'sub'}" in result.stderr
+        "s1 is an instance of module subm but there is no objective for this module"
+        in result.stderr
     )
     result = run_main_program("-f", "strategy_err1.json", cwd=workdir)
     assert result.returncode != 0
-    assert (
-        "proof_strategy.objectives[0].tactic: no instance s_ found in module main"
-        in result.stderr
-    )
+    assert "No module, module instance, or assert found with name  s_" in result.stderr
 
     result = run_main_program("-f", "strategy_err2.json", cwd=workdir)
     assert result.returncode != 0
-    "s1 is an instance of \\subm but this module is not specified in the submodules field" in result.stderr
+    "s1 is an instance of module subm but there is no objective for this module" in result.stderr
 
     result = run_main_program("-f", "ag_w_asserts_err0.json", cwd=workdir)
     assert result.returncode != 0
-    assert "top_assumption1 is neither a module instance or an assert" in result.stderr
+    assert (
+        "No module, module instance, or assert found with name  top_assumption1"
+        in result.stderr
+    )

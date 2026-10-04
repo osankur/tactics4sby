@@ -13,17 +13,19 @@
         "early-assume": true,
         "tactic": {
           "name": "assume_guarantee",
-          "submodules": [
-            {
-              "top": "subm"
-            }
-          ],
           "auto": false,
           "instances": [
-            "s1",
-            "s2"
+            {
+              "name": "s1"
+            },
+            {
+              "name": "s2"
+            }
           ]
         }
+      },
+      {
+        "top": "subm"
       }
     ]
   }

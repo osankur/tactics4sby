@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from parser import (
+    DEFAULT_ENGINES,
+    DEFAULT_OPTIONS,
     AssumeGuaranteeTactic,
+    CutpointTactic,
+    InductiveAssumeGuaranteeTactic,
+    Instance,
     Objective,
     ProofStrategy,
     ProofStrategyError,
@@ -41,6 +46,21 @@ def ag(**tactic_fields: object) -> dict:
     ``auto=False, instances=[...]`` for manual ordering.
     """
     return {"name": "assume_guarantee", **tactic_fields}
+
+
+def iag(**tactic_fields: object) -> dict:
+    """An ``inductive_assume_guarantee`` tactic object."""
+    return {"name": "inductive_assume_guarantee", **tactic_fields}
+
+
+def inst(name: object, **fields: object) -> dict:
+    """An entry of the ``instances`` list."""
+    return {"name": name, **fields}
+
+
+def cutpoint(wire: object = "w", **fields: object) -> dict:
+    """A ``cutpoint`` tactic object."""
+    return {"name": "cutpoint", "wire": wire, **fields}
 
 
 def split(expression: str = "x", **cases: object) -> dict:
@@ -86,14 +106,14 @@ def test_assertions_and_assumptions_are_gone():
             parse_string(strategy([{"top": "t", key: ["a"]}]))
 
 
-def test_assertions_rejected_on_submodule_objective():
+def test_assertions_rejected_on_instance_entry():
     with pytest.raises(ProofStrategyError, match="unknown key\\(s\\): 'assertions'"):
         parse_string(
             strategy(
                 [
                     {
                         "top": "t",
-                        "tactic": ag(submodules=[{"top": "s", "assertions": ["a"]}]),
+                        "tactic": ag(instances=[inst("s", assertions=["a"])]),
                     }
                 ]
             )
@@ -112,21 +132,6 @@ def test_objective_optional_name():
     assert objective.top == "main"
 
 
-def test_submodule_objective_can_be_named():
-    result = parse_string(
-        strategy(
-            [{"top": "main", "tactic": ag(submodules=[{"top": "subm", "name": "c1"}])}]
-        )
-    )
-    (objective,) = result.objectives
-    tactic = objective.tactic
-    assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.submodules
-    (sub,) = tactic.submodules.values()
-    assert sub.name == "c1"
-    assert sub.top == "subm"
-
-
 def test_objective_name_must_be_a_string():
     with pytest.raises(ProofStrategyError, match="expected a string"):
         parse_string(strategy([{"top": "main", "name": 42}]))
@@ -139,7 +144,7 @@ def test_objective_name_must_be_a_string():
 
 def test_json_path_on_objectives():
     result = parse_string(
-        strategy([{"top": "a"}, {"top": "b", "tactic": ag(submodules=[{"top": "s"}])}])
+        strategy([{"top": "a"}, {"top": "b", "tactic": ag(instances=[inst("s")])}])
     )
     (first, second) = result.objectives
     assert first.json_path == "proof_strategy.objectives[0]"
@@ -147,10 +152,10 @@ def test_json_path_on_objectives():
     assert second.tactic is not None
     assert second.tactic.json_path == "proof_strategy.objectives[1].tactic"
     assert isinstance(second.tactic, AssumeGuaranteeTactic)
-    assert second.tactic.submodules
+    assert second.tactic.instances
     assert (
-        second.tactic.submodules["s"].json_path
-        == "proof_strategy.objectives[1].tactic.submodules[0]"
+        second.tactic.instances[0].json_path
+        == "proof_strategy.objectives[1].tactic.instances[0]"
     )
 
 
@@ -161,9 +166,7 @@ def test_json_path_on_nested_tactics():
                 {
                     "top": "main",
                     "tactic": ag(
-                        submodules=[
-                            {"top": "subm", "tactic": split("x", case_true=split("y"))}
-                        ]
+                        instances=[inst("s1", tactic=split("x", case_true=split("y")))]
                     ),
                 }
             ]
@@ -173,18 +176,18 @@ def test_json_path_on_nested_tactics():
     assert objective.json_path == "proof_strategy.objectives[0]"
     ag_tactic = objective.tactic
     assert isinstance(ag_tactic, AssumeGuaranteeTactic)
-    assert ag_tactic.submodules
-    sub = ag_tactic.submodules["subm"]
-    assert sub.json_path == "proof_strategy.objectives[0].tactic.submodules[0]"
-    outer = sub.tactic
+    assert ag_tactic.instances
+    (instance,) = ag_tactic.instances
+    assert instance.json_path == "proof_strategy.objectives[0].tactic.instances[0]"
+    outer = instance.tactic
     assert isinstance(outer, SplitTactic)
     assert outer.json_path == (
-        "proof_strategy.objectives[0].tactic.submodules[0].tactic"
+        "proof_strategy.objectives[0].tactic.instances[0].tactic"
     )
     inner = outer.case_true
     assert isinstance(inner, SplitTactic)
     assert inner.json_path == (
-        "proof_strategy.objectives[0].tactic.submodules[0].tactic.case_true"
+        "proof_strategy.objectives[0].tactic.instances[0].tactic.case_true"
     )
 
 
@@ -233,17 +236,17 @@ def test_missing_top_is_rejected():
 
 
 # --------------------------------------------------------------------------- #
-# assume_guarantee: submodules
+# assume_guarantee: instances
 # --------------------------------------------------------------------------- #
 
 
-def test_assume_guarantee_with_submodules():
+def test_assume_guarantee_with_instances():
     result = parse_string(
         strategy(
             [
                 {
                     "top": "main",
-                    "tactic": ag(submodules=[{"top": "subm"}]),
+                    "tactic": ag(instances=[inst("s1"), inst("s2")]),
                 }
             ]
         )
@@ -251,51 +254,66 @@ def test_assume_guarantee_with_submodules():
     (objective,) = result.objectives
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.submodules
-    assert list(tactic.submodules) == ["subm"]
-    (sub,) = tactic.submodules.values()
-    assert sub == Objective(top="subm", tactic=None)
+    assert tactic.instances == (Instance(name="s1"), Instance(name="s2"))
 
 
-def test_assume_guarantee_without_submodules_means_all():
-    result = parse_string(strategy([{"top": "main", "tactic": ag()}]))
-    (tactic,) = [o.tactic for o in result.objectives]
+def test_instance_can_carry_a_tactic():
+    result = parse_string(
+        strategy(
+            [
+                {
+                    "top": "main",
+                    "tactic": ag(instances=[inst("s1", tactic=cutpoint("w"))]),
+                }
+            ]
+        )
+    )
+    (objective,) = result.objectives
+    tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.submodules is None
+    assert tactic.instances
+    (instance,) = tactic.instances
+    assert instance.name == "s1"
+    assert instance.tactic == CutpointTactic(wire="w")
 
 
-def test_empty_submodules_is_rejected():
-    with pytest.raises(ProofStrategyError, match="omit it for 'all'"):
-        parse_string(strategy([{"top": "t", "tactic": ag(submodules=[])}]))
+def test_instance_requires_a_name():
+    with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'name'"):
+        parse_string(strategy([{"top": "t", "tactic": ag(instances=[{}])}]))
 
 
-def test_submodule_names_must_be_distinct():
-    with pytest.raises(ProofStrategyError, match="duplicate submodule name 'subm'"):
+def test_instance_name_must_be_a_string():
+    with pytest.raises(ProofStrategyError, match="expected a string"):
+        parse_string(strategy([{"top": "t", "tactic": ag(instances=[inst(1)])}]))
+
+
+def test_empty_instances_is_rejected():
+    with pytest.raises(ProofStrategyError, match="must not be an empty array"):
+        parse_string(strategy([{"top": "t", "tactic": ag(instances=[])}]))
+
+
+def test_instance_names_must_be_distinct():
+    with pytest.raises(ProofStrategyError, match="duplicate instance name 's1'"):
         parse_string(
-            strategy(
-                [
-                    {
-                        "top": "t",
-                        "tactic": ag(submodules=[{"top": "subm"}, {"top": "subm"}]),
-                    }
-                ]
-            )
+            strategy([{"top": "t", "tactic": ag(instances=[inst("s1"), inst("s1")])}])
         )
 
 
-def test_assume_guarantee_is_recursive_through_submodules():
+def test_assume_guarantee_main_vc_tactic():
+    result = parse_string(strategy([{"top": "t", "tactic": ag(tactic=cutpoint("w"))}]))
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, AssumeGuaranteeTactic)
+    assert tactic.tactic == CutpointTactic(wire="w")
+
+
+def test_assume_guarantee_is_recursive_through_instance_tactics():
     result = parse_string(
         strategy(
             [
                 {
                     "top": "main",
                     "tactic": ag(
-                        submodules=[
-                            {
-                                "top": "subm",
-                                "tactic": ag(submodules=[{"top": "subsubm"}]),
-                            }
-                        ]
+                        instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
                     ),
                 }
             ]
@@ -304,10 +322,10 @@ def test_assume_guarantee_is_recursive_through_submodules():
     (objective,) = result.objectives
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.submodules
-    nested = tactic.submodules["subm"].tactic
+    assert tactic.instances
+    nested = tactic.instances[0].tactic
     assert isinstance(nested, AssumeGuaranteeTactic)
-    assert nested.submodules == {"subsubm": Objective(top="subsubm")}
+    assert nested.instances == (Instance(name="s2"),)
 
 
 # --------------------------------------------------------------------------- #
@@ -327,12 +345,12 @@ def test_auto_defaults_to_true():
 
 def test_manual_mode_is_opt_in():
     result = parse_string(
-        strategy([{"top": "t", "tactic": ag(auto=False, instances=["s1"])}])
+        strategy([{"top": "t", "tactic": ag(auto=False, instances=[inst("s1")])}])
     )
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.auto is False
-    assert tactic.instances == ("s1",)
+    assert tactic.instances == (Instance(name="s1"),)
     assert tactic.inline == ()
 
 
@@ -348,11 +366,13 @@ def test_manual_mode_requires_instances():
 
 def test_manual_mode_keeps_the_given_order():
     result = parse_string(
-        strategy([{"top": "t", "tactic": ag(auto=False, instances=["s2", "s1"])}])
+        strategy(
+            [{"top": "t", "tactic": ag(auto=False, instances=[inst("s2"), inst("s1")])}]
+        )
     )
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.instances == ("s2", "s1")
+    assert tactic.instances == (Instance(name="s2"), Instance(name="s1"))
 
 
 def test_auto_mode_allows_omitting_instances():
@@ -366,11 +386,13 @@ def test_auto_mode_allows_omitting_instances():
 
 def test_auto_mode_instances_restrict_the_set():
     result = parse_string(
-        strategy([{"top": "t", "tactic": ag(auto=True, instances=["s2", "s3"])}])
+        strategy(
+            [{"top": "t", "tactic": ag(auto=True, instances=[inst("s2"), inst("s3")])}]
+        )
     )
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.instances == ("s2", "s3")
+    assert tactic.instances == (Instance(name="s2"), Instance(name="s3"))
 
 
 def test_auto_mode_inline_list():
@@ -389,16 +411,11 @@ def test_inline_is_rejected_in_manual_mode():
                 [
                     {
                         "top": "t",
-                        "tactic": ag(auto=False, instances=["s1"], inline=["s2"]),
+                        "tactic": ag(auto=False, instances=[inst("s1")], inline=["s2"]),
                     }
                 ]
             )
         )
-
-
-def test_empty_instances_is_rejected():
-    with pytest.raises(ProofStrategyError, match="must not be an empty array"):
-        parse_string(strategy([{"top": "t", "tactic": ag(auto=True, instances=[])}]))
 
 
 def test_empty_inline_is_allowed():
@@ -408,13 +425,6 @@ def test_empty_inline_is_allowed():
     assert tactic.inline == ()
 
 
-def test_instance_names_must_be_distinct():
-    with pytest.raises(ProofStrategyError, match="duplicate instance name 's1'"):
-        parse_string(
-            strategy([{"top": "t", "tactic": ag(auto=True, instances=["s1", "s1"])}])
-        )
-
-
 def test_inline_names_must_be_distinct():
     with pytest.raises(ProofStrategyError, match="duplicate inline instance name 's1'"):
         parse_string(
@@ -422,9 +432,9 @@ def test_inline_names_must_be_distinct():
         )
 
 
-def test_instances_must_be_strings():
+def test_inline_names_must_be_strings():
     with pytest.raises(ProofStrategyError, match="expected a string"):
-        parse_string(strategy([{"top": "t", "tactic": ag(auto=True, instances=[1])}]))
+        parse_string(strategy([{"top": "t", "tactic": ag(auto=True, inline=[1])}]))
 
 
 # --------------------------------------------------------------------------- #
@@ -432,7 +442,7 @@ def test_instances_must_be_strings():
 # --------------------------------------------------------------------------- #
 
 
-def test_submodule_objective_inherits_early_flags():
+def test_instance_tactic_inherits_early_flags():
     result = parse_string(
         strategy(
             [
@@ -440,20 +450,24 @@ def test_submodule_objective_inherits_early_flags():
                     "top": "main",
                     "early-assert": True,
                     "early-assume": True,
-                    "tactic": ag(submodules=[{"top": "subm"}]),
+                    "tactic": ag(
+                        instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
+                    ),
                 }
             ]
         )
     )
     (objective,) = result.objectives
+    assert objective.early_assume and objective.early_assert
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.submodules
-    (sub,) = tactic.submodules.values()
-    assert sub.early_assume and sub.early_assert
+    assert tactic.instances
+    nested = tactic.instances[0].tactic
+    assert isinstance(nested, AssumeGuaranteeTactic)
+    assert nested.instances == (Instance(name="s2"),)
 
 
-def test_early_flags_inherit_through_deeply_nested_objectives():
+def test_early_flags_inherit_through_deeply_nested_tactics():
     result = parse_string(
         strategy(
             [
@@ -461,27 +475,20 @@ def test_early_flags_inherit_through_deeply_nested_objectives():
                     "top": "main",
                     "early-assert": True,
                     "tactic": ag(
-                        submodules=[
-                            {
-                                "top": "subm",
-                                "tactic": ag(submodules=[{"top": "subsubm"}]),
-                            }
-                        ]
+                        instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
                     ),
                 }
             ]
         )
     )
     (objective,) = result.objectives
+    assert objective.early_assert and not objective.early_assume
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.submodules
-    sub = tactic.submodules["subm"]
-    assert sub.early_assert and not sub.early_assume
-    assert isinstance(sub.tactic, AssumeGuaranteeTactic)
-    assert sub.tactic.submodules
-    (leaf,) = sub.tactic.submodules.values()
-    assert leaf.early_assert and not leaf.early_assume
+    assert tactic.instances
+    nested = tactic.instances[0].tactic
+    assert isinstance(nested, AssumeGuaranteeTactic)
+    assert nested.instances == (Instance(name="s2"),)
 
 
 def test_early_flags_inherit_through_split_cases():
@@ -491,74 +498,33 @@ def test_early_flags_inherit_through_split_cases():
                 {
                     "top": "main",
                     "early-assert": True,
-                    "tactic": split("x", case_true=ag(submodules=[{"top": "subm"}])),
+                    "tactic": split("x", case_true=ag(instances=[inst("s1")])),
                 }
             ]
         )
     )
     (objective,) = result.objectives
+    assert objective.early_assert and not objective.early_assume
     tactic = objective.tactic
     assert isinstance(tactic, SplitTactic)
     assert isinstance(tactic.case_true, AssumeGuaranteeTactic)
-    assert tactic.case_true.submodules
-    (sub,) = tactic.case_true.submodules.values()
-    assert sub.early_assert and not sub.early_assume
+    assert tactic.case_true.instances == (Instance(name="s1"),)
 
 
-def test_early_flags_forbidden_on_submodule_objective():
-    with pytest.raises(
-        ProofStrategyError, match="only be set on a top-level objective"
-    ):
+def test_early_flags_are_rejected_on_tactics():
+    # early flags are only meaningful on a top-level objective; a tactic
+    # object does not accept them at all
+    with pytest.raises(ProofStrategyError, match="unknown key"):
         parse_string(
             strategy(
                 [
                     {
                         "top": "main",
-                        "tactic": ag(
-                            submodules=[{"top": "subm", "early-assert": True}]
-                        ),
+                        "tactic": ag(early_assert=True),
                     }
                 ]
             )
         )
-
-
-def test_early_flags_forbidden_under_split_case():
-    with pytest.raises(
-        ProofStrategyError, match="only be set on a top-level objective"
-    ):
-        parse_string(
-            strategy(
-                [
-                    {
-                        "top": "main",
-                        "tactic": split(
-                            "x",
-                            case_true=ag(
-                                submodules=[{"top": "subm", "early-assume": True}]
-                            ),
-                        ),
-                    }
-                ]
-            )
-        )
-
-
-def test_submodule_entry_rejects_early_assume_alone():
-    # the early-assume => early-assert rule is not re-checkable on a nested
-    # objective (it is rejected outright), so the error mentions inheritance
-    with pytest.raises(ProofStrategyError) as excinfo:
-        parse_string(
-            strategy(
-                [
-                    {
-                        "top": "main",
-                        "tactic": ag(submodules=[{"top": "s", "early-assume": True}]),
-                    }
-                ]
-            )
-        )
-    assert "early-assume" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #
@@ -588,6 +554,22 @@ def test_split_with_nested_cases():
     assert isinstance(inner, SplitTactic) and inner.split_expression == "y < 3"
     assert isinstance(inner.case_false, SplitTactic)
     assert inner.case_true is None
+
+
+def test_split_with_tactic():
+    result = parse_string(
+        strategy([{"top": "t", "tactic": split("x", tactic=cutpoint("w"))}])
+    )
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, SplitTactic)
+    assert tactic.tactic == CutpointTactic(wire="w")
+
+
+def test_split_tactic_defaults_to_none():
+    result = parse_string(strategy([{"top": "t", "tactic": split("x")}]))
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, SplitTactic)
+    assert tactic.tactic is None
 
 
 def test_empty_case_object_is_rejected():
@@ -628,6 +610,149 @@ def test_unknown_tactic_name_is_rejected():
 def test_tactic_missing_name_is_rejected():
     with pytest.raises(ProofStrategyError, match="missing required key: 'name'"):
         parse_string(strategy([{"top": "t", "tactic": {"submodules": []}}]))
+
+
+# --------------------------------------------------------------------------- #
+# cutpoint tactic
+# --------------------------------------------------------------------------- #
+
+
+def test_cutpoint_requires_wire():
+    with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'wire'"):
+        parse_string(strategy([{"top": "t", "tactic": {"name": "cutpoint"}}]))
+
+
+def test_cutpoint_wire_must_be_a_string():
+    with pytest.raises(ProofStrategyError, match="expected a string"):
+        parse_string(strategy([{"top": "t", "tactic": cutpoint(wire=1)}]))
+
+
+def test_cutpoint_with_nested_tactic():
+    result = parse_string(
+        strategy([{"top": "t", "tactic": cutpoint("w", tactic=split("x"))}])
+    )
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, CutpointTactic)
+    assert tactic.wire == "w"
+    assert isinstance(tactic.tactic, SplitTactic)
+
+
+def test_cutpoint_without_nested_tactic():
+    result = parse_string(strategy([{"top": "t", "tactic": cutpoint("w")}]))
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, CutpointTactic)
+    assert tactic.tactic is None
+
+
+# --------------------------------------------------------------------------- #
+# inductive_assume_guarantee tactic
+# --------------------------------------------------------------------------- #
+
+
+def test_inductive_assume_guarantee_is_parsed():
+    result = parse_string(
+        strategy([{"top": "t", "tactic": iag(instances=[inst("s1")])}])
+    )
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
+    assert isinstance(tactic, AssumeGuaranteeTactic)
+    assert tactic.instances == (Instance(name="s1"),)
+
+
+def test_inductive_assume_guarantee_has_the_same_fields():
+    result = parse_string(
+        strategy(
+            [
+                {
+                    "top": "t",
+                    "tactic": iag(
+                        auto=False,
+                        instances=[inst("s1")],
+                        tactic=cutpoint("w"),
+                    ),
+                }
+            ]
+        )
+    )
+    (tactic,) = [o.tactic for o in result.objectives]
+    assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
+    assert tactic.auto is False
+    assert tactic.tactic == CutpointTactic(wire="w")
+
+
+# --------------------------------------------------------------------------- #
+# options / engines inheritance
+# --------------------------------------------------------------------------- #
+
+
+def test_options_and_engines_default():
+    (objective,) = parse_string(strategy([{"top": "t"}])).objectives
+    assert objective.options == DEFAULT_OPTIONS
+    assert objective.engines == DEFAULT_ENGINES
+
+
+def test_options_and_engines_on_objective():
+    (objective,) = parse_string(
+        strategy([{"top": "t", "options": ["mode bmc"], "engines": ["abc"]}])
+    ).objectives
+    assert objective.options == ("mode bmc",)
+    assert objective.engines == ("abc",)
+
+
+def test_options_and_engines_inherited_by_tactic():
+    result = parse_string(
+        strategy(
+            [
+                {
+                    "top": "t",
+                    "options": ["mode bmc"],
+                    "engines": ["abc"],
+                    "tactic": ag(instances=[inst("s1", tactic=cutpoint("w"))]),
+                }
+            ]
+        )
+    )
+    (objective,) = result.objectives
+    tactic = objective.tactic
+    assert isinstance(tactic, AssumeGuaranteeTactic)
+    assert tactic.options == ("mode bmc",)
+    assert tactic.engines == ("abc",)
+    assert tactic.instances
+    nested = tactic.instances[0].tactic
+    assert isinstance(nested, CutpointTactic)
+    assert nested.options == ("mode bmc",)
+    assert nested.engines == ("abc",)
+
+
+def test_tactic_options_override_objective():
+    result = parse_string(
+        strategy(
+            [
+                {
+                    "top": "t",
+                    "options": ["mode bmc"],
+                    "tactic": ag(options=["mode prove"], engines=["smtbmc"]),
+                }
+            ]
+        )
+    )
+    (objective,) = result.objectives
+    tactic = objective.tactic
+    assert isinstance(tactic, AssumeGuaranteeTactic)
+    assert tactic.options == ("mode prove",)
+    assert tactic.engines == ("smtbmc",)
+    # the objective keeps its own values
+    assert objective.options == ("mode bmc",)
+
+
+def test_options_must_be_an_array_of_strings():
+    with pytest.raises(ProofStrategyError, match="expected an array of strings"):
+        parse_string(strategy([{"top": "t", "options": "mode bmc"}]))
+
+
+def test_engines_must_be_an_array_of_strings():
+    with pytest.raises(ProofStrategyError, match="expected a string"):
+        parse_string(strategy([{"top": "t", "engines": [1]}]))
 
 
 # --------------------------------------------------------------------------- #
@@ -708,12 +833,12 @@ def test_error_messages_carry_the_json_path():
                     {"top": "t"},
                     {
                         "top": "t",
-                        "tactic": ag(submodules=[{"top": "s"}, {"top": 42}]),
+                        "tactic": ag(instances=[inst("s"), inst(42)]),
                     },
                 ]
             )
         )
-    assert "proof_strategy.objectives[1].tactic.submodules[1].top" in str(excinfo.value)
+    assert "proof_strategy.objectives[1].tactic.instances[1].name" in str(excinfo.value)
 
 
 def test_bad_json_reports_line_and_column():
@@ -753,7 +878,7 @@ def test_parse_dict_accepts_decoded_json():
 
 @pytest.mark.parametrize(
     "name",
-    ["strategy1.json", "strategy2.json", "strategy3.json"],
+    ["strategy1.json", "strategy2.json", "strategy3.json", "nested.json"],
 )
 def test_shipped_examples_parse(name: str):
     strategy_path = REPO_ROOT / "tests" / name

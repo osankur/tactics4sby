@@ -12,6 +12,9 @@
         "tactic": {
           "name": "assume_guarantee"
         }
+      },
+      {
+        "top": "subm"
       }
     ]
   }

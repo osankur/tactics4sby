@@ -11,15 +11,13 @@
         "top": "main",
         "tactic": {
           "name": "assume_guarantee",
-          "submodules": [
-            {
-              "top": "subm"
-            }
-          ],
           "inline": [
             "s3"
           ]
         }
+      },
+      {
+        "top": "subm"
       }
     ]
   }

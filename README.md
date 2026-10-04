@@ -61,6 +61,24 @@ Each objective is proven independently of the others.
 - [tests/strategy2.json](tests/strategy2.json) is a complete assume-guarantee proof against the `tests/module_dep1.sv` fixture, with an explicit instance order.
 - [tests/strategy3.json](tests/strategy3.json) shows automatic ordering with an inlined instance and a split nested inside a submodule objective.
 
+## Update
+The structure changes as follows.
+- Assume-guarantee tactics no longer have a submodules field. Instead, all objectives now appear in the top level. For each instance appearing in an assume-guarantee tactic, there must be a top level objective for its module.
+- The `instances` field of assume-guarantee tactic is now a list of objects containing a `name` field, which is the name of the instance cell, and an optional `tactic` field which can contain further tactics. When defined, this determines the tactic to use to prove the verification condition for this particular instance.
+- The assume-guarantee tactic itself can also contain an optional `tactic` field which determines the tactic to use for proving the main verification condition for this objective.
+
+- Each objective and each tactic can contain an optional `options` and `engines` fields. These are lists of strings.
+The semantics is hereditary: each tactic or object inherits these fields from the closest parent node including itself, that is, if they have these fields specified, then these are the values; otherwise they inherit the values from the closest parent.
+The default value for `options` is `["mode prove"]` and the default value of engines is `["smtbmc"]`.
+
+- We have two new tactics:
+  - `cutpoint` which applies cutpoint to a given wire. The mandatory `wire` field is a Yosys select expression referring to the top module's wires.
+  This implements user-defined abstractions.
+  An optional `tactic` field can be used to further apply other tactics.
+  - `inductive_assume_guarantee` which has a structure identical to assume_guarantee. This rule is interesting for proofs that require apparently circular reasoning. In this case, we attempt to prove the assumptions of each instance at time t, by assuming the assertions of other modules up to time t-1.
+
+The file `tests/nested.json` illustrates an example with these new features.
+
 ## Development
 
 ### Environment
