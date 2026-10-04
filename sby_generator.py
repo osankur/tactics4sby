@@ -45,7 +45,7 @@ class SbyScript:
             f = sys.stdout
 
         section_options = copy.copy(self.options)
-        section_script = copy.copy(self.script)
+        section_script = []
         section_engines = copy.copy(self.engines)
         section_tasks = []
 
@@ -147,11 +147,7 @@ class SbyGenerator:
     # task and group names used so far
     _task_and_group_names: set[str] = dataclasses.field(default_factory=set)
 
-    # Inserted after file reads for each objective
-    GLOBAL_SCRIPT = ["chformal -remove -cover -live"]
-
     def build(self) -> SbyScript:
-        toplevel_script = list(self.strategy.script)
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
@@ -161,7 +157,7 @@ class SbyGenerator:
         return SbyScript(
             toplevel_options,
             list(self.strategy.engines),
-            toplevel_script,
+            [],
             list(self.strategy.files),
             self.vcs,
         )
@@ -506,13 +502,13 @@ class SbyGenerator:
         )
 
         objective_script = [line for line in self.strategy.header]
-        objective_script.extend([f"hierarchy -top {objective.top}", "proc"])
-        objective_script.extend(self.GLOBAL_SCRIPT)
-        # FIXME Move this to top-level, outside of objectives
-        if objective.early_assert or objective.early_assume:
+        objective_script.extend(
+            [f"hierarchy -top {objective.top}", "proc", "chformal -remove -cover -live"]
+        )
+        if self.strategy.early_assert or self.strategy.early_assume:
             objective_script.append(
                 "chformal -early -assert "
-                + ("-assume" if objective.early_assume else "")
+                + ("-assume" if self.strategy.early_assume else "")
             )
 
         children = self.process_tactic(

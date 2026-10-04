@@ -7,12 +7,13 @@ At the top level, a `proof_strategy` object describes the design under verificat
 - `header` describing a list of strings that are Yosys commands to be executed (such as reading Verilog files, activating define macros). The commands are executed in a single Yosys session, in order, before any objective is processed. Relative paths are resolved against the directory containing the strategy file.
 - `files`, a mandatory list of source files to be considered in the sby configuration scripts. It may be empty.
 - `objectives`, a list of `objective` objects describing verification objectives. This list can be empty.
+- Optional `early-assume` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `early-assume` is true then `early-assert` must be true as well. These are strategy-wide flags.
+- Optional `options` and `engines` lists of strings. They default to `["mode prove"]` and `["smtbmc"]` and provide the SBY defaults.
 
 Each objective is given by the following fields:
 
 - `top` the name of the top module to be loaded. This module must exist after `header` has been executed.
 - Optional `name` field, a user-supplied label for the objective (e.g. for logs and error messages). It has no semantic effect. Submodule entries are objectives, so they may be labelled the same way.
-- Optional `early-assume` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `early-assume` is true then `early-assert` must be true as well. These fields may only be given on a top-level objective; nested objectives (submodule contracts and objectives reached through tactics) inherit their values, and it is an error to specify them there.
 - An optional `tactic` field containing a tactic object. If absent, the objective is a leaf: it is proven directly, without decomposition.
 
 The contract of an objective's `top` module is *all* of its assertions and assumptions. There is no way to select a subset: every assert and assume of the module is part of its contract. This always refers to properties of the `top` module, never to those of its submodules. Objectives are proven independently of one another: no assumption or intermediate result is shared between them.
@@ -27,7 +28,7 @@ This tactic object contains an optional `submodules` field holding a non-empty l
 - a mandatory `top` field, the name of the submodule (it becomes the top module of the recursive analysis);
 - an optional `tactic` field containing a tactic object, to specify recursively how the submodule's contract is proven.
 
-The `early-assume` / `early-assert` flags are *not* allowed on a submodule objective; they are inherited from the enclosing top-level objective.
+The `early-assume` / `early-assert` flags are strategy-wide and cannot be specified on an objective or tactic.
 
 If `submodules` is absent, then all modules instantiated inside the objective's `top` module are considered as submodules.
 
@@ -67,9 +68,8 @@ The structure changes as follows.
 - The `instances` field of assume-guarantee tactic is now a list of objects containing a `name` field, which is the name of the instance cell, and an optional `tactic` field which can contain further tactics. When defined, this determines the tactic to use to prove the verification condition for this particular instance.
 - The assume-guarantee tactic itself can also contain an optional `tactic` field which determines the tactic to use for proving the main verification condition for this objective.
 
-- Each objective and each tactic can contain an optional `options` and `engines` fields. These are lists of strings.
-The semantics is hereditary: each tactic or object inherits these fields from the closest parent node including itself, that is, if they have these fields specified, then these are the values; otherwise they inherit the values from the closest parent.
-The default value for `options` is `["mode prove"]` and the default value of engines is `["smtbmc"]`.
+- The strategy and each objective can contain optional `options` and `engines` lists. Strategy values default to `["mode prove"]` and `["smtbmc"]`; objective values retain those defaults unless specified.
+- Each tactic can also contain `options` and `engines` lists. Tactic values are local and are never inherited; omitted values are empty lists.
 
 - We have two new tactics:
   - `cutpoint` which applies cutpoint to a given wire. The mandatory `wire` field is a Yosys select expression referring to the top module's wires.

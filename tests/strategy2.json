@@ -6,11 +6,11 @@
     "files": [
       "module_dep2.sv"
     ],
+    "early-assert": true,
+    "early-assume": true,
     "objectives": [
       {
         "top": "main",
-        "early-assert": true,
-        "early-assume": true,
         "tactic": {
           "name": "assume_guarantee",
           "auto": false,

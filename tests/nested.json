@@ -1,0 +1,47 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv module_dep2.sv"
+    ],
+    "files": [
+      "module_dep2.sv"
+    ],
+    "objectives": [
+      {
+        "top": "main",
+        "tactic": {
+          "name": "cutpoint",
+          "wire": "main/mem_out*",
+          "tactic": {
+            "name": "assume_guarantee",
+            "tactic": {
+              "name": "cutpoint",
+              "wire": "w1"
+            },
+            "instances": [
+              {
+                "name": "s1",
+                "tactic": {
+                  "name": "cutpoint",
+                  "wire": "w2"
+                }
+              },
+              {
+                "name": "s2"
+              }
+            ],
+            "engines": [
+              "smtbmc"
+            ],
+            "options": [
+              "mode bmc"
+            ]
+          }
+        }
+      },
+      {
+        "top": "subm"
+      }
+    ]
+  }
+}

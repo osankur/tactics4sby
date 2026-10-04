@@ -26,14 +26,16 @@ HEADER = ["read_verilog -sv module_dep1.sv"]
 FILES = ["module_dep1.sv"]
 
 
-def strategy(objectives: list[dict]) -> str:
-    """A strategy document with the given top-level ``objectives``."""
+def strategy(objectives: list[dict], proof_strategy_fields: dict | None = None) -> str:
+    """A strategy document with the given objectives and strategy fields."""
+    fields = proof_strategy_fields or {}
     return json.dumps(
         {
             "proof_strategy": {
                 "header": HEADER,
                 "files": FILES,
                 "objectives": objectives,
+                **fields,
             }
         }
     )
@@ -82,8 +84,8 @@ def test_leaf_objective():
 
     (objective,) = result.objectives
     assert objective == Objective(top="main", tactic=None)
-    assert not objective.early_assume
-    assert not objective.early_assert
+    assert not result.early_assume
+    assert not result.early_assert
 
 
 def test_defaults_are_none():
@@ -212,17 +214,22 @@ def test_parsed_strategy_json_path_is_document_root():
 
 def test_early_flags_must_be_booleans():
     with pytest.raises(ProofStrategyError, match="expected a boolean"):
-        parse_string(strategy([{"top": "t", "early-assert": "yes"}]))
+        parse_string(strategy([], {"early-assert": "yes"}))
 
 
 def test_early_assume_requires_early_assert():
     with pytest.raises(ProofStrategyError, match="requires 'early-assert'"):
-        parse_string(strategy([{"top": "t", "early-assume": True}]))
+        parse_string(strategy([], {"early-assume": True}))
     # the converse is fine: early-assert alone is legal
-    (objective,) = parse_string(
-        strategy([{"top": "t", "early-assert": True}])
-    ).objectives
-    assert objective.early_assert and not objective.early_assume
+    result = parse_string(strategy([], {"early-assert": True}))
+    assert result.early_assert and not result.early_assume
+
+
+def test_early_flags_are_strategy_wide_and_rejected_on_objectives():
+    result = parse_string(strategy([{"top": "t"}], {"early-assert": True}))
+    assert result.early_assert
+    with pytest.raises(ProofStrategyError, match="unknown key"):
+        parse_string(strategy([{"top": "t", "early-assert": True}]))
 
 
 def test_unknown_key_is_rejected():
@@ -438,27 +445,26 @@ def test_inline_names_must_be_strings():
 
 
 # --------------------------------------------------------------------------- #
-# early-flag inheritance
+# strategy-wide early flags
 # --------------------------------------------------------------------------- #
 
 
-def test_instance_tactic_inherits_early_flags():
+def test_instance_tactics_do_not_store_strategy_early_flags():
     result = parse_string(
         strategy(
             [
                 {
                     "top": "main",
-                    "early-assert": True,
-                    "early-assume": True,
                     "tactic": ag(
                         instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
                     ),
                 }
-            ]
+            ],
+            {"early-assert": True, "early-assume": True},
         )
     )
+    assert result.early_assume and result.early_assert
     (objective,) = result.objectives
-    assert objective.early_assume and objective.early_assert
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances
@@ -467,22 +473,21 @@ def test_instance_tactic_inherits_early_flags():
     assert nested.instances == (Instance(name="s2"),)
 
 
-def test_early_flags_inherit_through_deeply_nested_tactics():
+def test_early_flags_are_not_tactic_fields():
     result = parse_string(
         strategy(
             [
                 {
                     "top": "main",
-                    "early-assert": True,
                     "tactic": ag(
                         instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
                     ),
                 }
-            ]
+            ],
+            {"early-assert": True},
         )
     )
     (objective,) = result.objectives
-    assert objective.early_assert and not objective.early_assume
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances
@@ -491,20 +496,20 @@ def test_early_flags_inherit_through_deeply_nested_tactics():
     assert nested.instances == (Instance(name="s2"),)
 
 
-def test_early_flags_inherit_through_split_cases():
+def test_strategy_early_flags_apply_independently_of_split_cases():
     result = parse_string(
         strategy(
             [
                 {
                     "top": "main",
-                    "early-assert": True,
                     "tactic": split("x", case_true=ag(instances=[inst("s1")])),
                 }
-            ]
+            ],
+            {"early-assert": True},
         )
     )
+    assert result.early_assert and not result.early_assume
     (objective,) = result.objectives
-    assert objective.early_assert and not objective.early_assume
     tactic = objective.tactic
     assert isinstance(tactic, SplitTactic)
     assert isinstance(tactic.case_true, AssumeGuaranteeTactic)
@@ -512,8 +517,7 @@ def test_early_flags_inherit_through_split_cases():
 
 
 def test_early_flags_are_rejected_on_tactics():
-    # early flags are only meaningful on a top-level objective; a tactic
-    # object does not accept them at all
+    # Early flags are strategy-level only; tactics reject them.
     with pytest.raises(ProofStrategyError, match="unknown key"):
         parse_string(
             strategy(
@@ -681,14 +685,28 @@ def test_inductive_assume_guarantee_has_the_same_fields():
 
 
 # --------------------------------------------------------------------------- #
-# options / engines inheritance
+# options / engines defaults and scope
 # --------------------------------------------------------------------------- #
 
 
 def test_options_and_engines_default():
-    (objective,) = parse_string(strategy([{"top": "t"}])).objectives
+    result = parse_string(strategy([{"top": "t"}]))
+    (objective,) = result.objectives
     assert objective.options == DEFAULT_OPTIONS
     assert objective.engines == DEFAULT_ENGINES
+    assert result.options == DEFAULT_OPTIONS
+    assert result.engines == DEFAULT_ENGINES
+
+
+def test_options_and_engines_on_proof_strategy():
+    result = parse_string(
+        strategy(
+            [],
+            {"options": ["mode bmc"], "engines": ["abc"]},
+        )
+    )
+    assert result.options == ("mode bmc",)
+    assert result.engines == ("abc",)
 
 
 def test_options_and_engines_on_objective():
@@ -699,7 +717,7 @@ def test_options_and_engines_on_objective():
     assert objective.engines == ("abc",)
 
 
-def test_options_and_engines_inherited_by_tactic():
+def test_options_and_engines_are_not_inherited_by_tactic():
     result = parse_string(
         strategy(
             [
@@ -715,13 +733,13 @@ def test_options_and_engines_inherited_by_tactic():
     (objective,) = result.objectives
     tactic = objective.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.options == ("mode bmc",)
-    assert tactic.engines == ("abc",)
+    assert tactic.options == ()
+    assert tactic.engines == ()
     assert tactic.instances
     nested = tactic.instances[0].tactic
     assert isinstance(nested, CutpointTactic)
-    assert nested.options == ("mode bmc",)
-    assert nested.engines == ("abc",)
+    assert nested.options == ()
+    assert nested.engines == ()
 
 
 def test_tactic_options_override_objective():
