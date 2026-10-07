@@ -107,7 +107,7 @@ class SbyScript:
         print_section("script", section_script)
         print_section("files", self.files)
 
-    def __str__(self):
+    def to_string(self, show_details: bool = False):
         lines = ["SbyScript:"]
 
         def add_section(title: str, values: list[str]) -> None:
@@ -149,15 +149,25 @@ class SbyScript:
             n = len(children)
             node_col = len(prefix) + len(connector)
 
-            prelabel = "┐" if n > 0 else " "
+            is_toplevel = prefix == "" and connector in ("┌", "├", "└")
+
+            if is_toplevel:
+                if n > 0:
+                    prelabel = "┬"
+                else:
+                    prelabel = "" if connector == "└" else "─"
+            else:
+                prelabel = "┬" if n > 0 else " "
+
             result: list[str] = [f"{prefix}{connector}{prelabel}{label}"]
 
             # Options/engines/script are shown on their own lines, aligned with
             # the node's junction column. A vertical bar is drawn when the node
             # has children so the subtree stays connected.
-            detail_prefix = "| " if n > 0 else "  "
-            for detail in vc_details(vc):
-                result.append(" " * node_col + detail_prefix + detail)
+            if show_details:
+                detail_prefix = "| " if n > 0 else "  "
+                for detail in vc_details(vc):
+                    result.append(" " * node_col + detail_prefix + detail)
 
             # Every child is printed on its own line, even when there is only
             # one. Non-last children start with "├", the last one with "└".
@@ -167,10 +177,10 @@ class SbyScript:
             # they are indented with spaces only.
             if connector == "":
                 child_prefix = ""
-            elif connector == "└─":
-                child_prefix = prefix + "  "
+            elif connector.startswith("└"):
+                child_prefix = prefix + " " * len(connector)
             else:
-                child_prefix = prefix + "│ "
+                child_prefix = prefix + "│" + " " * (len(connector) - 1)
             for i, child in enumerate(children):
                 child_connector = "└─" if i == n - 1 else "├─"
                 result.extend(render_vc(child, child_prefix, child_connector))
@@ -178,10 +188,19 @@ class SbyScript:
             return result
 
         if self.vcs:
-            for vc in self.vcs:
-                lines.extend(render_vc(vc, "", ""))
+            for i, vc in enumerate(self.vcs):
+                if i == 0:
+                    connector = "┌"
+                elif i == len(self.vcs) - 1:
+                    connector = "└"
+                else:
+                    connector = "├"
+                lines.extend(render_vc(vc, "", connector))
 
         return "\n".join(lines)
+
+    def __str__(self):
+        return self.to_string()
 
 
 @dataclass

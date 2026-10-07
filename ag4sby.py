@@ -1,8 +1,10 @@
 import sys
 import os
+import json
 import shutil
 import argparse
 import traceback
+import subprocess
 from pathlib import Path
 from logger import logger, setup_logging
 import parser
@@ -11,8 +13,37 @@ import configuration
 import tempfile
 
 
-def run_sby(sby_file: Path):
-    pass
+def run_sby(sby_file: Path, cfg: configuration.Configuration) -> list[dict]:
+    """Run sby on ``sby_file`` and return the parsed status records.
+
+    The first run performs the actual proof.  The second run re-reads the
+    results with ``--statusfmt jsonl``, which prints one JSON object per line
+    (no nesting); each line is parsed into a dictionary.
+    """
+    sby_result = subprocess.run(
+        ["sby", "-f", str(sby_file)],
+        stdout=None if cfg.verbose_sby else subprocess.DEVNULL,
+        stderr=None if cfg.verbose_sby else subprocess.DEVNULL,
+        check=False,
+    )
+    sby_result = subprocess.run(
+        ["sby", "-f", "--statusfmt", "jsonl", str(sby_file)],
+        stdout=subprocess.PIPE,
+        stderr=None if cfg.verbose_sby else subprocess.DEVNULL,
+        check=False,
+        text=True,
+    )
+    if sby_result.returncode != 0:
+        raise Exception(f"sby returned with value {sby_result.returncode}")
+    records: list[dict] = []
+    for line in sby_result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        records.append(json.loads(line))
+    for line in records:
+        print(line)
+    return records
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         with open(sby_file, "w") as f:
             sby.dump(f)
         logger.info(f"Generated proof strategy into {sby_file}")
-        run_sby(sby_file)
+        run_sby(sby_file, cfg)
     except Exception as exc:
         if args.verbosity > 1:
             traceback.print_exc()
