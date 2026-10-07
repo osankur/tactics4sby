@@ -79,7 +79,7 @@ def make_model(
     with open(modeldir / "design_prep.ys", "w") as f:
         for cmd in read_commands:
             print(cmd, file=f)
-        print(f"hierarchy -smtcheck -top {top}", file=f)
+        print("hierarchy -smtcheck -auto-top", file=f)
         print("prep", file=f)
         print("scc -select; simplemap; select -clear", file=f)
         print("memory_nordff", file=f)
@@ -87,16 +87,11 @@ def make_model(
             print("clk2fflogic", file=f)
         else:
             print("async2sync", file=f)
-        # print("opt_clean", file=f)
         print("formalff -setundef -clk2ff -ff2anyinit -hierarchy", file=f)
         # we only keep assume and asserts
         print("chformal -live -fair -cover -remove", file=f)
-        # print("opt_clean", file=f)
-        print("check", file=f)  # can't detect undriven wires past this point
         print("setundef -undriven -anyseq", file=f)
-        # print("opt -fast", file=f)
         print("rename -witness", file=f)
-        # print("opt_clean", file=f)
         print(f"write_rtlil {modeldir}/{top}.il", file=f)
         if cfg.dump_dot_circuits:
             print(f"select -module \\{top}", file=f)

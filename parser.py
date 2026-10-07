@@ -31,16 +31,12 @@ class ProofStrategyError(ValueError):
 
 
 TACTIC_NAMES: tuple[str, ...] = (
+    "none",
     "assume_guarantee",
     "inductive_assume_guarantee",
     "cutpoint",
     "split",
 )
-
-#: Default sby options and engines.
-DEFAULT_OPTIONS: tuple[str, ...] = ("mode prove",)
-DEFAULT_ENGINES: tuple[str, ...] = ("smtbmc",)
-
 
 # --------------------------------------------------------------------------- #
 # Data model
@@ -77,6 +73,11 @@ class Instance:
     name: str
     tactic: Tactic | None = None
     json_path: str = field(default="", compare=False)
+
+
+@dataclass(frozen=True, kw_only=True)
+class NoneTactic(Tactic):
+    """Absence of tactic. Useful to specify options and engines for a VC without decomposing further."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -118,13 +119,13 @@ class InductiveAssumeGuaranteeTactic(AssumeGuaranteeTactic):
 
 @dataclass(frozen=True, kw_only=True)
 class CutpointTactic(Tactic):
-    """Apply ``cutpoint`` to a wire, implementing a user-defined abstraction.
+    """Apply ``cutpoint`` to a selection, implementing a user-defined abstraction.
 
-    ``wire`` is a Yosys select expression referring to the top module's wires.
+    ``selection`` is a Yosys select expression referring to the top module's wires.
     ``tactic``, when given, is applied after the cutpoint.
     """
 
-    wire: str
+    selection: str
     tactic: Tactic | None = None
 
     name: ClassVar[str] = "cutpoint"
@@ -135,17 +136,16 @@ class SplitTactic(Tactic):
     """Case split on a Verilog expression.
 
     ``case_false`` / ``case_true`` are the tactics applied to the branch where
-    ``split_expression`` is false / true; ``None`` means that branch is proven
+    ``split_wire`` is false / true; ``None`` means that branch is proven
     directly.  The expression is evaluated in the module owning the VC.
 
     ``tactic``, when given, is applied after the split (e.g. to the whole
     verification condition once both cases have been discharged).
     """
 
-    split_expression: str
+    split_wire: str
     case_false: Tactic | None = None
     case_true: Tactic | None = None
-    tactic: Tactic | None = None
 
     name: ClassVar[str] = "split"
 
@@ -168,8 +168,8 @@ class Objective:
     top: str
     name: str | None = None
     tactic: Tactic | None = None
-    options: tuple[str, ...] = DEFAULT_OPTIONS
-    engines: tuple[str, ...] = DEFAULT_ENGINES
+    options: tuple[str, ...] = field(default=(), compare=False)
+    engines: tuple[str, ...] = field(default=(), compare=False)
     json_path: str = field(default="", compare=False)
 
 
@@ -191,8 +191,8 @@ class ProofStrategy:
 
     early_assume: bool = False
     early_assert: bool = False
-    options: tuple[str, ...] = DEFAULT_OPTIONS
-    engines: tuple[str, ...] = DEFAULT_ENGINES
+    options: tuple[str, ...] = field(default=(), compare=False)
+    engines: tuple[str, ...] = field(default=(), compare=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -222,6 +222,7 @@ _TACTIC_COMMON_OPTIONAL = ("options", "engines")
 #: Per tactic name: the keys it requires, and the keys it additionally tolerates.
 #: 'name' is required by every tactic and is listed in the required tuple.
 _TACTIC_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "none": (("name",), _TACTIC_COMMON_OPTIONAL),
     "assume_guarantee": (
         ("name",),
         ("auto", "instances", "inline", "tactic") + _TACTIC_COMMON_OPTIONAL,
@@ -230,10 +231,10 @@ _TACTIC_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("name",),
         ("auto", "instances", "inline", "tactic") + _TACTIC_COMMON_OPTIONAL,
     ),
-    "cutpoint": (("name", "wire"), ("tactic",) + _TACTIC_COMMON_OPTIONAL),
+    "cutpoint": (("name", "selection"), ("tactic",) + _TACTIC_COMMON_OPTIONAL),
     "split": (
-        ("name", "split_expression"),
-        ("case_false", "case_true", "tactic") + _TACTIC_COMMON_OPTIONAL,
+        ("name", "split_wire"),
+        ("case_false", "case_true") + _TACTIC_COMMON_OPTIONAL,
     ),
 }
 
@@ -321,8 +322,8 @@ class _Parser:
             if obj.get("name") is not None
             else None
         )
-        options = self._optional_string_list(obj, "options", path, DEFAULT_OPTIONS)
-        engines = self._optional_string_list(obj, "engines", path, DEFAULT_ENGINES)
+        options = self._optional_string_list(obj, "options", path, ())
+        engines = self._optional_string_list(obj, "engines", path, ())
 
         tactic: Tactic | None = None
         if obj.get("tactic") is not None:
@@ -376,30 +377,30 @@ class _Parser:
             return self._assume_guarantee(obj, path, name=name)
 
         if name == "cutpoint":
-            wire = self._string(obj["wire"], f"{path}.wire")
+            selection = self._string(obj["selection"], f"{path}.selection")
             tactic = self._optional_tactic(obj, "tactic", path)
             return CutpointTactic(
-                wire=wire,
+                selection=selection,
                 tactic=tactic,
                 options=options,
                 engines=engines,
                 json_path=path,
             )
 
-        # name == "split"
-        expression = self._string(obj["split_expression"], f"{path}.split_expression")
-        case_false = self._optional_case(obj, "case_false", path)
-        case_true = self._optional_case(obj, "case_true", path)
-        tactic = self._optional_tactic(obj, "tactic", path)
-        return SplitTactic(
-            split_expression=expression,
-            case_false=case_false,
-            case_true=case_true,
-            tactic=tactic,
-            options=options,
-            engines=engines,
-            json_path=path,
-        )
+        if name == "split":
+            expression = self._string(obj["split_wire"], f"{path}.split_wire")
+            case_false = self._optional_case(obj, "case_false", path)
+            case_true = self._optional_case(obj, "case_true", path)
+            return SplitTactic(
+                split_wire=expression,
+                case_false=case_false,
+                case_true=case_true,
+                options=options,
+                engines=engines,
+                json_path=path,
+            )
+        assert name == "none"
+        return NoneTactic(options=options, engines=engines)
 
     def _optional_tactic(
         self,
@@ -551,12 +552,8 @@ class _Parser:
             objectives=objectives,
             early_assume=early_assume,
             early_assert=early_assert,
-            options=self._optional_string_list(
-                ps, "options", "proof_strategy", DEFAULT_OPTIONS
-            ),
-            engines=self._optional_string_list(
-                ps, "engines", "proof_strategy", DEFAULT_ENGINES
-            ),
+            options=self._optional_string_list(ps, "options", "proof_strategy", ()),
+            engines=self._optional_string_list(ps, "engines", "proof_strategy", ()),
             source=source,
             json_path="proof_strategy",
         )
@@ -628,11 +625,11 @@ def _describe_tactic(tactic: Tactic, lines: list[str], indent: int) -> None:
             lines.append(f"{pad}  main VC:")
             _describe_tactic(tactic.tactic, lines, indent + 2)
     elif isinstance(tactic, CutpointTactic):
-        lines.append(f"{pad}tactic: cutpoint on {tactic.wire}")
+        lines.append(f"{pad}tactic: cutpoint on {tactic.selection}")
         if tactic.tactic is not None:
             _describe_tactic(tactic.tactic, lines, indent + 1)
     elif isinstance(tactic, SplitTactic):
-        lines.append(f"{pad}tactic: split on {tactic.split_expression}")
+        lines.append(f"{pad}tactic: split on {tactic.split_wire}")
         for label, case in (
             ("case_false", tactic.case_false),
             ("case_true", tactic.case_true),
@@ -642,9 +639,6 @@ def _describe_tactic(tactic: Tactic, lines: list[str], indent: int) -> None:
             else:
                 lines.append(f"{pad}  {label}:")
                 _describe_tactic(case, lines, indent + 2)
-        if tactic.tactic is not None:
-            lines.append(f"{pad}  after split:")
-            _describe_tactic(tactic.tactic, lines, indent + 2)
 
 
 def summarize(strategy: ProofStrategy) -> str:

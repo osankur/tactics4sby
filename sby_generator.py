@@ -14,7 +14,7 @@ from cell_graph import _strip_backslash, CellGraph
 
 @dataclass
 class VerificationCondition:
-    # TODO Change this if a module contains this
+    # TODO Change this if a module starts with this pattern
     VC_PREFIX = "_vc_"
     name: str
     tactic: str
@@ -25,6 +25,8 @@ class VerificationCondition:
 
     def __post_init__(self):
         self.name = f"{self.VC_PREFIX}{self.name}"
+        for vc in self.children:
+            assert vc
 
 
 @dataclass
@@ -72,9 +74,9 @@ class SbyScript:
             add_group(vc.name, vc.engines, section_engines)
             if vc.children == []:
                 section_tasks.append(f"{vc.name} {' '.join(parent_groups)}")
-                if not specified_options:
+                if vc.options == [] and not specified_options:
                     add_group(vc.name, list(self.DEFAULT_OPTIONS), section_options)
-                if not specified_engines:
+                if vc.engines == [] and not specified_engines:
                     add_group(vc.name, list(self.DEFAULT_ENGINES), section_engines)
             else:
                 next_parent_groups = (
@@ -91,7 +93,7 @@ class SbyScript:
                     )
 
         for vc in self.vcs:
-            traverse(vc, [], self.options == [], self.engines == [])
+            traverse(vc, [], self.options != [], self.engines != [])
 
         def print_section(name: str, content: list[str]):
             print(f"[{name}]", file=f)
@@ -109,28 +111,75 @@ class SbyScript:
         lines = ["SbyScript:"]
 
         def add_section(title: str, values: list[str]) -> None:
-            lines.append(f"  {title}:")
             if values:
+                lines.append(f"  {title}:")
                 lines.extend(f"    {value}" for value in values)
-            else:
-                lines.append("    (none)")
 
         add_section("Options", self.options)
         add_section("Engines", self.engines)
         add_section("Script", self.script)
         lines.append("  Verification conditions:")
 
-        def add_vc(vc: VerificationCondition, indent: int) -> None:
-            prefix = " " * indent
-            lines.append(f"{prefix}{vc.name} (tactic: {vc.tactic})")
-            for child in vc.children:
-                add_vc(child, indent + 2)
+        def vc_label(vc: VerificationCondition) -> str:
+            return f"{vc.name} ({vc.tactic})"
+
+        def vc_details(vc: VerificationCondition) -> list[str]:
+            details = []
+            if vc.options:
+                details.append(f"options: {vc.options}")
+            if vc.engines:
+                details.append(f"engines: {vc.engines}")
+            if vc.script:
+                details.append(f"script: {vc.script}")
+            return details
+
+        def render_vc(
+            vc: VerificationCondition, prefix: str, connector: str
+        ) -> list[str]:
+            """Render ``vc`` and its descendants as pstree-like lines.
+
+            ``prefix`` is the indentation before the node's connector, and
+            ``connector`` is ``""`` for a root node, ``"├─"`` for a non-last
+            child, or ``"└─"`` for a last child. The node's junction column is
+            ``len(prefix) + len(connector)``; both its detail lines and its
+            children's connectors are aligned to that column.
+            """
+            label = vc_label(vc)
+            children = vc.children
+            n = len(children)
+            node_col = len(prefix) + len(connector)
+
+            prelabel = "┐" if n > 0 else " "
+            result: list[str] = [f"{prefix}{connector}{prelabel}{label}"]
+
+            # Options/engines/script are shown on their own lines, aligned with
+            # the node's junction column. A vertical bar is drawn when the node
+            # has children so the subtree stays connected.
+            detail_prefix = "| " if n > 0 else "  "
+            for detail in vc_details(vc):
+                result.append(" " * node_col + detail_prefix + detail)
+
+            # Every child is printed on its own line, even when there is only
+            # one. Non-last children start with "├", the last one with "└".
+            # Children's connectors line up with this node's junction column;
+            # the vertical bar is carried down for non-last children so
+            # subtrees stay connected. Root children have no bar above them, so
+            # they are indented with spaces only.
+            if connector == "":
+                child_prefix = ""
+            elif connector == "└─":
+                child_prefix = prefix + "  "
+            else:
+                child_prefix = prefix + "│ "
+            for i, child in enumerate(children):
+                child_connector = "└─" if i == n - 1 else "├─"
+                result.extend(render_vc(child, child_prefix, child_connector))
+
+            return result
 
         if self.vcs:
             for vc in self.vcs:
-                add_vc(vc, 4)
-        else:
-            lines.append("    (none)")
+                lines.extend(render_vc(vc, "", ""))
 
         return "\n".join(lines)
 
@@ -177,13 +226,21 @@ class SbyGenerator:
         cg: dict[str, CellGraph],
         parent_objective: parser.Objective,
         proven_tops: set[str],
-    ) -> list[VerificationCondition]:
+    ) -> VerificationCondition | None:
         """
         Explore the tactic tree recursively returning a list of VerificationCondition objects which are premises of this tactic.
         """
-        vcs = []
         if tactic is None:
-            return []
+            return None
+        if isinstance(tactic, parser.NoneTactic):
+            return VerificationCondition(
+                f"{vc_path}_none",
+                "none",
+                [],
+                list(tactic.options),
+                list(tactic.engines),
+                [],
+            )
         if isinstance(tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
                 str(_strip_backslash(str(k)))
@@ -384,23 +441,26 @@ class SbyGenerator:
                 ]
             )
 
-            children = self.process_tactic(
+            child_vc = self.process_tactic(
                 tactic.tactic,
                 top_ag_task,
                 cg,
                 parent_objective,
                 proven_tops,
             )
-            vcs.append(
-                VerificationCondition(
-                    top_ag_task,
-                    f"{tactic.tactic.__class__.__name__}",
-                    children,
-                    list(tactic.options),
-                    list(tactic.engines),
-                    script=top_ag_script,
-                )
-            )
+            vcs = []
+            if child_vc:
+                vcs.append(child_vc)
+            # vcs.append(
+            #     VerificationCondition(
+            #         top_ag_task,
+            #         f"{tactic.tactic.__class__.__name__}",
+            #         children,
+            #         list(tactic.options),
+            #         list(tactic.engines),
+            #         script=top_ag_script,
+            #     )
+            # )
 
             previous_cells = []
             next_cells = copy.copy(ordered_instances)
@@ -460,34 +520,94 @@ class SbyGenerator:
                         f"show -stretch -prefix {inst_ag_task} -format svg",
                     ]
                 )
-
-                children = self.process_tactic(
+                subvc = self.process_tactic(
                     inst.tactic,
                     inst_ag_task,
                     cg,
                     parent_objective,
                     proven_tops,
                 )
-                vcs.append(
-                    VerificationCondition(
-                        inst_ag_task,
-                        f"{inst.tactic.__class__.__name__}",
-                        children,
-                        list(inst.tactic.options)
-                        if inst.tactic and inst.tactic.options
-                        else [],
-                        list(inst.tactic.engines)
-                        if inst.tactic and inst.tactic.engines
-                        else [],
-                        inst_ag_script,
-                    )
-                )
+                if subvc:
+                    vcs.append(subvc)
                 previous_cells.append(cell)
-            return vcs
+            return VerificationCondition(
+                f"{vc_path}_ag",
+                f"{tactic.__class__.__name__}",
+                vcs,
+                list(tactic.options),
+                list(tactic.engines),
+                [],
+            )
         elif isinstance(tactic, parser.CutpointTactic):
-            raise Exception("Not implemented")
+            name = f"{vc_path}_cp"
+            child_tactic = self.process_tactic(
+                tactic.tactic,
+                name,
+                cg,
+                parent_objective,
+                proven_tops,
+            )
+            return VerificationCondition(
+                name,
+                tactic.__class__.__name__,
+                [child_tactic] if child_tactic else [],
+                list(tactic.options),
+                list(tactic.engines),
+                [
+                    f"select -module {parent_objective.top} {tactic.selection} -assert-any",
+                    f"cutpoint {tactic.selection}",
+                ],
+            )
         elif isinstance(tactic, parser.SplitTactic):
-            raise Exception("Not implemented")
+            if (
+                f"\\{tactic.split_wire}"
+                not in cg[parent_objective.top].top_module.wires_
+            ):
+                raise Exception(
+                    f"{tactic.json_path}: Could not find wire {tactic.split_wire!r} in module {parent_objective.top!r}"
+                )
+            split_wire = cg[parent_objective.top].top_module.wires_[
+                f"\\{tactic.split_wire}"
+            ]
+            if split_wire.width != 1:
+                raise Exception(
+                    f"{tactic.json_path}: The width of the split_wire {tactic.split_wire!r} is not 1."
+                )
+            # Child VCs must be non-empty since we need to add preamble to their scripts to assume the case condition
+            # so we replace any tactic that is None by an instance of NoneTactic()
+            child0 = self.process_tactic(
+                tactic.case_false if tactic.case_false else parser.NoneTactic(),
+                f"{vc_path}_split0",
+                cg,
+                parent_objective,
+                proven_tops,
+            )
+            assert child0
+            child0.script = child0.script + [
+                f"select -module {parent_objective.top}",
+                f"add -assume {tactic.split_wire} -not",
+            ]
+
+            child1 = self.process_tactic(
+                tactic.case_true if tactic.case_true else parser.NoneTactic(),
+                f"{vc_path}_split1",
+                cg,
+                parent_objective,
+                proven_tops,
+            )
+            assert child1
+            child1.script = child1.script + [
+                f"select -module {parent_objective.top}",
+                f"add -assume {tactic.split_wire}",
+            ]
+            return VerificationCondition(
+                f"{vc_path}_split",
+                tactic.__class__.__name__,
+                [child0, child1],
+                list(tactic.options),
+                list(tactic.engines),
+                [],
+            )
         else:
             raise Exception(f"Unknown tactic {type(tactic)}")
 
@@ -511,7 +631,7 @@ class SbyGenerator:
                 + ("-assume" if self.strategy.early_assume else "")
             )
 
-        children = self.process_tactic(
+        child_vc = self.process_tactic(
             objective.tactic,
             objective.top,
             cg,
@@ -522,9 +642,9 @@ class SbyGenerator:
             VerificationCondition(
                 objective.top,
                 f"{objective.tactic.__class__.__name__}",
-                children,
-                [],
-                [],
+                [child_vc] if child_vc else [],
+                list(objective.options),
+                list(objective.engines),
                 objective_script,
             )
         )

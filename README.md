@@ -50,9 +50,9 @@ The role of the submodule objectives and the instances is the following. When ap
 
 ## Tactic: `split`
 
-The object must contain a `split_expression` field containing a Verilog expression, plus optional `case_false` and `case_true` subfields. Each of these, when present, must be a tactic object. An absent case means that the corresponding branch is proven directly, without further decomposition. (An empty object `{}` is not a tactic and is rejected; use the absence of the field to mean "prove directly".) One can thus for instance nest a secondary split tactic inside, say, `case_true`.
+The object must contain a `split_wire` field containing a Verilog expression, plus optional `case_false` and `case_true` subfields. Each of these, when present, must be a tactic object. An absent case means that the corresponding branch is proven directly, without further decomposition. (An empty object `{}` is not a tactic and is rejected; use the absence of the field to mean "prove directly".) One can thus for instance nest a secondary split tactic inside, say, `case_true`.
 
-The `split_expression` is evaluated in the module owning the verification condition being split: in the objective's `top` module at the top level, and in the submodule of a submodule objective's tactic.
+The `split_wire` is evaluated in the module owning the verification condition being split: in the objective's `top` module at the top level, and in the submodule of a submodule objective's tactic.
 
 Each objective is proven independently of the others.
 

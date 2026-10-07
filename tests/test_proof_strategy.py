@@ -6,8 +6,6 @@ from pathlib import Path
 import pytest
 
 from parser import (
-    DEFAULT_ENGINES,
-    DEFAULT_OPTIONS,
     AssumeGuaranteeTactic,
     CutpointTactic,
     InductiveAssumeGuaranteeTactic,
@@ -60,14 +58,14 @@ def inst(name: object, **fields: object) -> dict:
     return {"name": name, **fields}
 
 
-def cutpoint(wire: object = "w", **fields: object) -> dict:
+def cutpoint(selection: object = "w", **fields: object) -> dict:
     """A ``cutpoint`` tactic object."""
-    return {"name": "cutpoint", "wire": wire, **fields}
+    return {"name": "cutpoint", "selection": selection, **fields}
 
 
 def split(expression: str = "x", **cases: object) -> dict:
     """A ``split`` tactic object."""
-    return {"name": "split", "split_expression": expression, **cases}
+    return {"name": "split", "split_wire": expression, **cases}
 
 
 # --------------------------------------------------------------------------- #
@@ -281,7 +279,7 @@ def test_instance_can_carry_a_tactic():
     assert tactic.instances
     (instance,) = tactic.instances
     assert instance.name == "s1"
-    assert instance.tactic == CutpointTactic(wire="w")
+    assert instance.tactic == CutpointTactic(selection="w")
 
 
 def test_instance_requires_a_name():
@@ -310,7 +308,7 @@ def test_assume_guarantee_main_vc_tactic():
     result = parse_string(strategy([{"top": "t", "tactic": ag(tactic=cutpoint("w"))}]))
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.tactic == CutpointTactic(wire="w")
+    assert tactic.tactic == CutpointTactic(selection="w")
 
 
 def test_assume_guarantee_is_recursive_through_instance_tactics():
@@ -555,25 +553,15 @@ def test_split_with_nested_cases():
     assert isinstance(tactic, SplitTactic)
     assert tactic.case_false is None
     inner = tactic.case_true
-    assert isinstance(inner, SplitTactic) and inner.split_expression == "y < 3"
+    assert isinstance(inner, SplitTactic) and inner.split_wire == "y < 3"
     assert isinstance(inner.case_false, SplitTactic)
     assert inner.case_true is None
-
-
-def test_split_with_tactic():
-    result = parse_string(
-        strategy([{"top": "t", "tactic": split("x", tactic=cutpoint("w"))}])
-    )
-    (tactic,) = [o.tactic for o in result.objectives]
-    assert isinstance(tactic, SplitTactic)
-    assert tactic.tactic == CutpointTactic(wire="w")
 
 
 def test_split_tactic_defaults_to_none():
     result = parse_string(strategy([{"top": "t", "tactic": split("x")}]))
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, SplitTactic)
-    assert tactic.tactic is None
 
 
 def test_empty_case_object_is_rejected():
@@ -583,7 +571,7 @@ def test_empty_case_object_is_rejected():
 
 def test_split_requires_expression():
     with pytest.raises(
-        ProofStrategyError, match="missing required key\\(s\\): 'split_expression'"
+        ProofStrategyError, match="missing required key\\(s\\): 'split_wire'"
     ):
         parse_string(strategy([{"top": "t", "tactic": {"name": "split"}}]))
 
@@ -598,7 +586,7 @@ def test_tactic_rejects_keys_of_the_other_tactic():
                         "tactic": {
                             "name": "assume_guarantee",
                             "auto": True,
-                            "split_expression": "x",
+                            "split_wire": "x",
                         },
                     }
                 ]
@@ -621,14 +609,16 @@ def test_tactic_missing_name_is_rejected():
 # --------------------------------------------------------------------------- #
 
 
-def test_cutpoint_requires_wire():
-    with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'wire'"):
+def test_cutpoint_requires_selection():
+    with pytest.raises(
+        ProofStrategyError, match="missing required key\\(s\\): 'selection'"
+    ):
         parse_string(strategy([{"top": "t", "tactic": {"name": "cutpoint"}}]))
 
 
-def test_cutpoint_wire_must_be_a_string():
+def test_cutpoint_selection_must_be_a_string():
     with pytest.raises(ProofStrategyError, match="expected a string"):
-        parse_string(strategy([{"top": "t", "tactic": cutpoint(wire=1)}]))
+        parse_string(strategy([{"top": "t", "tactic": cutpoint(selection=1)}]))
 
 
 def test_cutpoint_with_nested_tactic():
@@ -637,7 +627,7 @@ def test_cutpoint_with_nested_tactic():
     )
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, CutpointTactic)
-    assert tactic.wire == "w"
+    assert tactic.selection == "w"
     assert isinstance(tactic.tactic, SplitTactic)
 
 
@@ -681,23 +671,12 @@ def test_inductive_assume_guarantee_has_the_same_fields():
     (tactic,) = [o.tactic for o in result.objectives]
     assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
     assert tactic.auto is False
-    assert tactic.tactic == CutpointTactic(wire="w")
+    assert tactic.tactic == CutpointTactic(selection="w")
 
 
 # --------------------------------------------------------------------------- #
 # options / engines defaults and scope
 # --------------------------------------------------------------------------- #
-
-
-def test_options_and_engines_default():
-    result = parse_string(strategy([{"top": "t"}]))
-    (objective,) = result.objectives
-    assert objective.options == DEFAULT_OPTIONS
-    assert objective.engines == DEFAULT_ENGINES
-    assert result.options == DEFAULT_OPTIONS
-    assert result.engines == DEFAULT_ENGINES
-
-
 def test_options_and_engines_on_proof_strategy():
     result = parse_string(
         strategy(
