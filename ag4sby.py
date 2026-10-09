@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
         "-v",
         "--verbose",
         action="count",
-        default=0,
+        default=1,
         dest="verbosity",
         help="Increase verbosity: -v info, -vv debug",
     )
@@ -68,9 +68,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     argparser.add_argument(
         "--run-sby",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         dest="run_sby",
-        help="Run sby on produced .sby configuration file",
+        help="Run sby on produced .sby configuration file (use --no-run-sby to skip)",
+    )
+    argparser.add_argument(
+        "--run-task",
+        default=None,
+        dest="run_task",
+        help="Run only the given task (default: all tasks are run)",
     )
     argparser.add_argument(
         "-f",
@@ -112,19 +119,18 @@ def main(argv: list[str] | None = None) -> int:
         os.chdir(cfg.basedir)
         strategy = parser.parse_file(strategy_path)
         if args.summarize:
-            logger.info(parser.summarize(strategy))
-        generator = sby_generator.SbyGenerator(strategy, cfg)
-        sby = generator.build()
+            print(parser.summarize(strategy))
         sby_file = cfg.basedir / (strategy_path.stem + ".sby")
+        generator = sby_generator.SbyGenerator(strategy, cfg, sby_file)
+        sby = generator.get_sby_script()
         if sby_file.exists() and not args.force:
             raise FileExistsError(f"{sby_file} already exists; use -f to overwrite it")
-
         with open(sby_file, "w") as f:
             sby.dump(f)
         logger.info(f"Generated proof strategy into {sby_file}")
-        sby_result = sby_generator.run_sby(sby_file, cfg)
-        sby.annotate_with_results(sby_result)
-        print(sby.to_string())
+        if args.run_sby:
+            sby.run(args.run_task)
+        print(sby)
     except Exception as exc:
         if args.verbosity > 1:
             traceback.print_exc()

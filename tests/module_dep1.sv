@@ -26,7 +26,7 @@ module main (
   always_comb begin
     top_assumption1 : assume (x & 5'b00001);
     top_property1 : assert (z >= 4);
-    top_property2 : assert (z >= 5);
+    top_property2 : assert (z >= 3);
     z = (y < 13) ? y : y - 2;
   end
 endmodule

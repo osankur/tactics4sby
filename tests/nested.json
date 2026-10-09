@@ -11,7 +11,7 @@
         "top": "main",
         "tactic": {
           "name": "cutpoint",
-          "selection": "main/mem_out*",
+          "selection": "main/ycase",
           "tactic": {
             "name": "assume_guarantee",
             "tactic": {

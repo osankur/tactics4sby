@@ -1,353 +1,21 @@
-import sys
-from typing import TextIO
 import copy
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-import json
-import subprocess
 
 from logger import logger
 import parser
 import cell_graph
 import configuration
 from cell_graph import _strip_backslash, CellGraph
-
-STATUS_BITS: dict[str, int] = {
-    "PASS": 1,
-    "FAIL": 2,
-    "UNKNOWN": 4,
-    "TIMEOUT": 8,
-    "ERROR": 16,
-    "CANCELLED": 32,
-}
-
-
-def status_to_code(status: str):
-    if status == "PASS":
-        return 1
-    if status == "FAIL":
-        return 2
-    if status == "UNKNOWN":
-        return 4
-    if status == "TIMEOUT":
-        return 8
-    if status == "ERROR":
-        return 16
-    if status == "CANCELLED":
-        return 32
-
-    raise Exception(f"Unknown sby status: {status}")
-
-
-STATUS_ICONS: dict[str, str] = {
-    "PASS": "\u2705",  # ✅ green check mark
-    "FAIL": "\u274c",  # ❌ red cross
-    "UNKNOWN": "\u2754",  # ❔ question mark ornament (bluish/grey)
-    "TIMEOUT": "\u231b",  # ⌛ hourglass
-    "ERROR": "\U0001f4a5",  # 💥 collision
-    "CANCELLED": "\U0001f6ab",  # 🚫 prohibited
-}
-
-
-def status_to_icone(status: str | None):
-    """Return a short status icon for ``status``.
-
-    Falls back to a middle dot for unknown or unset (``None``) statuses, e.g.
-    for a verification condition whose results have not been annotated yet.
-    """
-    return STATUS_ICONS.get(status, "\u00b7")  # ·
-
-
-def code_to_statuses(code: int) -> list[str]:
-    return [status for status, bit in STATUS_BITS.items() if code & bit]
-
-
-@dataclass
-class SbyResult:
-    taskstatus: dict[str, str] = field(default_factory=lambda: dict())
-    vc_results: list[dict[str, str]] = field(default_factory=lambda: [])
-
-
-def run_sby(sby_file: Path, cfg: configuration.Configuration) -> SbyResult:
-    """Run sby on ``sby_file`` and return the parsed status records.
-
-    The first run performs the actual proof.  The second run re-reads the
-    results with ``--statusfmt jsonl``, which prints one JSON object per line
-    (no nesting); each line is parsed into a dictionary.
-    """
-    sby_exec_result = subprocess.run(
-        ["sby", "-f", str(sby_file)],
-        stdout=None if cfg.verbose_sby else subprocess.DEVNULL,
-        stderr=None if cfg.verbose_sby else subprocess.DEVNULL,
-        check=False,
-    )
-    sby_taskstatus_result = subprocess.run(
-        ["sby", "-f", "--taskstatus", str(sby_file)],
-        stdout=subprocess.PIPE,
-        stderr=None if cfg.verbose_sby else subprocess.DEVNULL,
-        check=False,
-        text=True,
-    )
-    status = dict()
-    for line in sby_taskstatus_result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        fields = line.split(" ")
-        assert len(fields) == 2, f"Unexpected output by --taskstatus: {fields}"
-        status[fields[0]] = fields[1]
-    sby_statusfmt_result = subprocess.run(
-        ["sby", "-f", "--statusfmt", "jsonl", str(sby_file)],
-        stdout=subprocess.PIPE,
-        stderr=None if cfg.verbose_sby else subprocess.DEVNULL,
-        check=True,
-        text=True,
-    )
-    records: list[dict] = []
-    for line in sby_statusfmt_result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        records.append(json.loads(line))
-    # for line in records:
-    #     print(line)
-    return SbyResult(status, records)
-
-
-@dataclass
-class VerificationCondition:
-    # TODO Change this if a module starts with this pattern
-    VC_PREFIX = "_vc_"
-    name: str
-    tactic: str
-    children: list["VerificationCondition"] = field(default_factory=lambda: [])
-    options: list[str] = field(default_factory=lambda: [])
-    engines: list[str] = field(default_factory=lambda: [])
-    script: list[str] = field(default_factory=lambda: [])
-
-    status: str | None = None
-    vc_results: list[dict[str, str]] = field(default_factory=lambda: [])
-
-    def __post_init__(self):
-        self.name = f"{self.VC_PREFIX}{self.name}"
-        for vc in self.children:
-            assert vc
-
-    def annotate(self, sby_result: SbyResult):
-        for vc in self.children:
-            vc.annotate(sby_result)
-        children_status = [vc.status for vc in self.children]
-        if self.children == []:
-            self.status = sby_result.taskstatus[self.name]
-            self.vc_results = [
-                r for r in sby_result.vc_results if r["task_name"] == self.name
-            ]
-            # print(
-            #     f"-- Status of {self.name}: {self.status} : {list(map(lambda x: x == 'PASS', children_status))}"
-            # )
-        else:
-            if "FAIL" in children_status:
-                self.status = "FAIL"
-            elif all(map(lambda x: x == "PASS", children_status)):
-                self.status = "PASS"
-                # print(
-                #     f"-- All children of {self.name}: {[(vc.name, vc.status) for vc in self.children]}"
-                # )
-                # print(f"-- All children of {self.name} are {children_status}")
-            else:
-                self.status = "UNKNOWN"
-
-
-@dataclass
-class SbyScript:
-    options: list[str]
-    engines: list[str]
-    script: list[str]
-    files: list[str]
-    vcs: list[VerificationCondition]
-
-    DEFAULT_OPTIONS: tuple[str, ...] = ("mode prove",)
-    DEFAULT_ENGINES: tuple[str, ...] = ("smtbmc",)
-
-    def dump(self, f: TextIO | None = None):
-        """Write the .sby file to an already open file object ``f`` (e.g. an
-        open file or ``sys.stdout``)."""
-        if f is None:
-            f = sys.stdout
-
-        section_options = copy.copy(self.options)
-        section_script = []
-        section_engines = copy.copy(self.engines)
-        section_tasks = []
-
-        def add_group(group_name: str, group_content: list[str], section: list[str]):
-            if group_content:
-                if len(group_content) == 1:
-                    section.append(f"{group_name}: {group_content[0]}")
-                else:
-                    section.append(f"{group_name}:")
-                    section.extend(group_content)
-                    section.append("--")
-
-        def traverse(
-            vc: VerificationCondition,
-            parent_groups: list[str],
-            specified_options: bool,
-            specified_engines: bool,
-        ):
-            """
-            either there is a global options & engines, or each task must specify these
-            """
-            add_group(vc.name, vc.options, section_options)
-            add_group(vc.name, vc.script, section_script)
-            add_group(vc.name, vc.engines, section_engines)
-            if vc.children == []:
-                section_tasks.append(f"{vc.name} {' '.join(parent_groups)}")
-                if vc.options == [] and not specified_options:
-                    add_group(vc.name, list(self.DEFAULT_OPTIONS), section_options)
-                if vc.engines == [] and not specified_engines:
-                    add_group(vc.name, list(self.DEFAULT_ENGINES), section_engines)
-            else:
-                next_parent_groups = (
-                    [vc.name] + parent_groups
-                    if vc.options or vc.script or vc.engines
-                    else parent_groups
-                )
-                for subvc in vc.children:
-                    traverse(
-                        subvc,
-                        next_parent_groups,
-                        specified_options or vc.options != [],
-                        specified_engines or vc.engines != [],
-                    )
-
-        for vc in self.vcs:
-            traverse(vc, [], self.options != [], self.engines != [])
-
-        def print_section(name: str, content: list[str]):
-            print(f"[{name}]", file=f)
-            for line in content:
-                print(line, file=f)
-            print("", file=f)
-
-        print_section("tasks", section_tasks)
-        print_section("options", section_options)
-        print_section("engines", section_engines)
-        print_section("script", section_script)
-        print_section("files", self.files)
-
-    def to_string(self, show_details: bool = False):
-        lines = []
-
-        def add_section(title: str, values: list[str]) -> None:
-            if values:
-                lines.append(f"  {title}:")
-                lines.extend(f"    {value}" for value in values)
-
-        add_section("Options", self.options)
-        add_section("Engines", self.engines)
-        add_section("Script", self.script)
-
-        def vc_label(vc: VerificationCondition) -> str:
-            return f"[{status_to_icone(vc.status)}] {vc.name} ({vc.tactic})"
-
-        def vc_details(vc: VerificationCondition) -> list[str]:
-            details = []
-            if vc.options:
-                details.append(f"options: {vc.options}")
-            if vc.engines:
-                details.append(f"engines: {vc.engines}")
-            if vc.script:
-                details.append(f"script: {vc.script}")
-            return details
-
-        def render_vc(
-            vc: VerificationCondition, prefix: str, connector: str
-        ) -> list[str]:
-            """Render ``vc`` and its descendants as pstree-like lines.
-
-            ``prefix`` is the indentation before the node's connector, and
-            ``connector`` is ``""`` for a root node, ``"├─"`` for a non-last
-            child, or ``"└─"`` for a last child. The node's junction column is
-            ``len(prefix) + len(connector)``; both its detail lines and its
-            children's connectors are aligned to that column.
-            """
-            label = vc_label(vc)
-            children = vc.children
-            n = len(children)
-            node_col = len(prefix) + len(connector)
-
-            is_toplevel = prefix == "" and connector in ("┌", "├", "└")
-
-            if is_toplevel:
-                if n > 0:
-                    prelabel = "┬"
-                else:
-                    prelabel = "" if connector == "└" else "─"
-            else:
-                prelabel = "┬" if n > 0 else " "
-
-            result: list[str] = [f"{prefix}{connector}{prelabel}{label}"]
-
-            # Options/engines/script are shown on their own lines, aligned with
-            # the node's junction column. A vertical bar is drawn when the node
-            # has children so the subtree stays connected.
-            detail_prefix = "| " if n > 0 else "  "
-            if show_details:
-                for detail in vc_details(vc):
-                    result.append("|" + " " * (node_col - 1) + detail_prefix + detail)
-            for r in vc.vc_results:
-                if r["status"] == "FAIL":
-                    result.append(
-                        "|"
-                        + " " * (node_col - 1)
-                        + detail_prefix
-                        + f"trace: {r['trace']}"
-                    )
-            # Every child is printed on its own line, even when there is only
-            # one. Non-last children start with "├", the last one with "└".
-            # Children's connectors line up with this node's junction column;
-            # the vertical bar is carried down for non-last children so
-            # subtrees stay connected. Root children have no bar above them, so
-            # they are indented with spaces only.
-            if connector == "":
-                child_prefix = ""
-            elif connector.startswith("└"):
-                child_prefix = prefix + " " * len(connector)
-            else:
-                child_prefix = prefix + "│" + " " * (len(connector) - 1)
-            for i, child in enumerate(children):
-                child_connector = "└─" if i == n - 1 else "├─"
-                result.extend(render_vc(child, child_prefix, child_connector))
-
-            return result
-
-        if self.vcs:
-            for i, vc in enumerate(self.vcs):
-                if i == 0:
-                    connector = "┌"
-                elif i == len(self.vcs) - 1:
-                    connector = "└"
-                else:
-                    connector = "├"
-                lines.extend(render_vc(vc, "", connector))
-
-        return "\n".join(lines)
-
-    def annotate_with_results(self, sby_result: SbyResult):
-        """Annotate VC tree with sby results by propagating status bottom up"""
-        for vc in self.vcs:
-            vc.annotate(sby_result)
-
-    def __str__(self):
-        return self.to_string()
+from sby_script import SbyScript, VerificationCondition
 
 
 @dataclass
 class SbyGenerator:
     strategy: parser.ProofStrategy
     cfg: configuration.Configuration
+    sby_file: Path
     verbose: bool = False
     verbose_yosys: bool = False
 
@@ -356,7 +24,7 @@ class SbyGenerator:
     # task and group names used so far
     _task_and_group_names: set[str] = dataclasses.field(default_factory=set)
 
-    def build(self) -> SbyScript:
+    def get_sby_script(self) -> SbyScript:
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
@@ -369,6 +37,8 @@ class SbyGenerator:
             [],
             list(self.strategy.files),
             self.vcs,
+            self.sby_file,
+            self.cfg,
         )
 
     def _get_task_or_group_name(self, name: str) -> str:
@@ -383,6 +53,7 @@ class SbyGenerator:
         self,
         tactic: parser.Tactic | None,
         vc_path: str,
+        pre_script: list[str],
         cg: dict[str, CellGraph],
         parent_objective: parser.Objective,
         proven_tops: set[str],
@@ -390,16 +61,16 @@ class SbyGenerator:
         """
         Explore the tactic tree recursively returning a list of VerificationCondition objects which are premises of this tactic.
         """
-        if tactic is None:
+        if tactic is None and pre_script == []:
             return None
-        if isinstance(tactic, parser.NoneTactic):
+        if isinstance(tactic, parser.NoneTactic) or tactic is None and pre_script:
             return VerificationCondition(
-                f"{vc_path}_none",
-                "none",
+                vc_path,
+                "",
                 [],
-                list(tactic.options),
-                list(tactic.engines),
-                [],
+                list(tactic.options) if tactic else [],
+                list(tactic.engines) if tactic else [],
+                pre_script,
             )
         if isinstance(tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
@@ -547,7 +218,6 @@ class SbyGenerator:
                     )
                 return script
 
-            top_ag_task = self._get_task_or_group_name(f"{vc_path}_ag_top")
             top_ag_script = [
                 "# Mark check cells at the top level:",
                 f"setattr -set _ag_vc_top 1 {parent_objective.top}/* t:$check %i",
@@ -600,36 +270,34 @@ class SbyGenerator:
                     f"show -stretch -prefix {parent_objective.top} -format svg",
                 ]
             )
-
             child_vc = self.process_tactic(
                 tactic.tactic,
-                top_ag_task,
+                self._get_task_or_group_name(f"{vc_path}_ag_top"),
+                top_ag_script,
                 cg,
                 parent_objective,
                 proven_tops,
             )
-            vcs = []
-            if child_vc:
-                vcs.append(child_vc)
-            # vcs.append(
-            #     VerificationCondition(
-            #         top_ag_task,
-            #         f"{tactic.tactic.__class__.__name__}",
-            #         children,
-            #         list(tactic.options),
-            #         list(tactic.engines),
-            #         script=top_ag_script,
-            #     )
-            # )
+            assert child_vc
+            vcs = [child_vc]
 
             previous_cells = []
             next_cells = copy.copy(ordered_instances)
             while next_cells:
                 cell = next_cells.pop(0)
                 cell_name = _strip_backslash(cell.name)
-                inst_ag_task = self._get_task_or_group_name(
-                    f"{vc_path}_ag_{cell_name}_"
+
+                # Find the instance object that corresponds to this cell
+                inst = next(
+                    (
+                        inst
+                        for inst in instances
+                        if _strip_backslash(cell.name) in inst.name
+                    ),
+                    None,
                 )
+
+                inst_ag_task = self._get_task_or_group_name(f"{vc_path}_ag_{cell_name}")
                 inst_ag_script = [
                     "# Remove all top-level asserts and flatten:",
                     f"chformal -assert -remove {parent_objective.top}/*",
@@ -681,43 +349,43 @@ class SbyGenerator:
                     ]
                 )
                 subvc = self.process_tactic(
-                    inst.tactic,
+                    inst.tactic if inst else None,
                     inst_ag_task,
+                    inst_ag_script,
                     cg,
                     parent_objective,
                     proven_tops,
                 )
-                if subvc:
-                    print(f"Adding task {subvc.name}")
-                    vcs.append(subvc)
+                assert subvc
+                vcs.append(subvc)
                 previous_cells.append(cell)
             return VerificationCondition(
-                f"{vc_path}_ag",
+                vc_path,
                 f"{tactic.__class__.__name__}",
                 vcs,
                 list(tactic.options),
                 list(tactic.engines),
-                [],
+                pre_script,
             )
         elif isinstance(tactic, parser.CutpointTactic):
-            name = f"{vc_path}_cp"
             child_tactic = self.process_tactic(
                 tactic.tactic,
-                name,
+                f"{vc_path}_cp",
+                [
+                    f"select -module {parent_objective.top} {tactic.selection} -assert-any",
+                    f"cutpoint {tactic.selection}",
+                ],
                 cg,
                 parent_objective,
                 proven_tops,
             )
             return VerificationCondition(
-                name,
+                vc_path,
                 tactic.__class__.__name__,
                 [child_tactic] if child_tactic else [],
                 list(tactic.options),
                 list(tactic.engines),
-                [
-                    f"select -module {parent_objective.top} {tactic.selection} -assert-any",
-                    f"cutpoint {tactic.selection}",
-                ],
+                pre_script,
             )
         elif isinstance(tactic, parser.SplitTactic):
             if (
@@ -739,35 +407,35 @@ class SbyGenerator:
             child0 = self.process_tactic(
                 tactic.case_false if tactic.case_false else parser.NoneTactic(),
                 f"{vc_path}_split0",
+                [
+                    f"select -module {parent_objective.top}",
+                    f"add -assume {tactic.split_wire} -not",
+                ],
                 cg,
                 parent_objective,
                 proven_tops,
             )
             assert child0
-            child0.script = child0.script + [
-                f"select -module {parent_objective.top}",
-                f"add -assume {tactic.split_wire} -not",
-            ]
 
             child1 = self.process_tactic(
                 tactic.case_true if tactic.case_true else parser.NoneTactic(),
                 f"{vc_path}_split1",
+                [
+                    f"select -module {parent_objective.top}",
+                    f"add -assume {tactic.split_wire}",
+                ],
                 cg,
                 parent_objective,
                 proven_tops,
             )
             assert child1
-            child1.script = child1.script + [
-                f"select -module {parent_objective.top}",
-                f"add -assume {tactic.split_wire}",
-            ]
             return VerificationCondition(
-                f"{vc_path}_split",
+                vc_path,
                 tactic.__class__.__name__,
                 [child0, child1],
                 list(tactic.options),
                 list(tactic.engines),
-                [],
+                pre_script,
             )
         else:
             raise Exception(f"Unknown tactic {type(tactic)}")
@@ -795,17 +463,10 @@ class SbyGenerator:
         child_vc = self.process_tactic(
             objective.tactic,
             objective.top,
+            objective_script,
             cg,
             objective,
             proven_tops,
         )
-        self.vcs.append(
-            VerificationCondition(
-                objective.top,
-                f"{objective.tactic.__class__.__name__}",
-                [child_vc] if child_vc else [],
-                list(objective.options),
-                list(objective.engines),
-                objective_script,
-            )
-        )
+        assert child_vc
+        self.vcs.append(child_vc)

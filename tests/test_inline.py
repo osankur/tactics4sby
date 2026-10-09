@@ -79,7 +79,7 @@ def test_inline_strategy_parses(make_design, monkeypatch):
     strategy = parse_string(strategy_json)
     # y1 is 4 bits wide, so the split tactic must reject it.
     with pytest.raises(Exception, match=r"width of the split_wire 'y1' is not 1"):
-        sby_generator.SbyGenerator(strategy, cfg).build()
+        sby_generator.SbyGenerator(strategy, cfg).get_sby_script()
 
     strategy_json = json.dumps(
         {
@@ -95,7 +95,7 @@ def test_inline_strategy_parses(make_design, monkeypatch):
     strategy = parse_string(strategy_json)
     # No y2 so reject
     with pytest.raises(Exception, match=r"Could not find wire 'y3' in module 'main'"):
-        sby_generator.SbyGenerator(strategy, cfg).build()
+        sby_generator.SbyGenerator(strategy, cfg).get_sby_script()
 
     strategy_json = json.dumps(
         {
@@ -135,7 +135,7 @@ _vc_main_split0_none: smtbmc
 _vc_main_split1_none: smtbmc
 """
     buf = io.StringIO()
-    sby = sby_generator.SbyGenerator(strategy, cfg).build()
+    sby = sby_generator.SbyGenerator(strategy, cfg).get_sby_script()
     sby.dump(buf)
     output = buf.getvalue()
     print(output)
@@ -170,7 +170,7 @@ _vc_main_split1_none: smtbmc
 """
     strategy = parse_string(strategy_json)
     buf = io.StringIO()
-    sby = sby_generator.SbyGenerator(strategy, cfg).build()
+    sby = sby_generator.SbyGenerator(strategy, cfg).get_sby_script()
     sby.dump(buf)
     output = buf.getvalue()
     print(output)

@@ -639,6 +639,8 @@ def _describe_tactic(tactic: Tactic, lines: list[str], indent: int) -> None:
             else:
                 lines.append(f"{pad}  {label}:")
                 _describe_tactic(case, lines, indent + 2)
+    elif isinstance(tactic, NoneTactic):
+        lines.append(f"{pad}tactic: none")
 
 
 def summarize(strategy: ProofStrategy) -> str:
