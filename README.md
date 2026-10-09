@@ -113,6 +113,41 @@ Coverage is reported automatically at the end of every run (configured in
 .venv/bin/python -m pytest -k cli             # only the end-to-end tests
 ```
 
+### Pre-commit hooks
+
+The repository ships a [pre-commit](https://pre-commit.com/) configuration
+(`.pre-commit-config.yaml`).  Install it once per clone:
+
+```sh
+pre-commit install --install-hooks          # commit-stage hooks
+pre-commit install --hook-type pre-push     # also install the pre-push hook
+```
+
+The hooks are:
+
+| Hook                                                                                         | Stage        | What it does                                   |
+| -------------------------------------------------------------------------------------------- | ------------ | ---------------------------------------------- |
+| `trailing-whitespace`, `end-of-file-fixer`, `mixed-line-ending`                              | commit       | File hygiene.                                  |
+| `check-yaml`, `check-toml`, `check-json`                                                     | commit       | Validate config and fixture syntax.            |
+| `check-merge-conflict`, `check-case-conflict`, `check-added-large-files`, `debug-statements` | commit       | Common mistakes.                               |
+| `ruff-check` (`--fix`)                                                                       | commit       | Lint, using `[tool.ruff]` in `pyproject.toml`. |
+| `ruff-format`                                                                                | commit       | Formatting.                                    |
+| `ty`                                                                                         | commit       | Type checking (whole project).                 |
+| `pytest`                                                                                     | **pre-push** | Runs the test suite.                           |
+
+Run everything manually with:
+
+```sh
+pre-commit run --all-files                  # commit-stage hooks
+pre-commit run pytest --hook-stage pre-push # the test suite
+```
+
+The `pytest` hook is attached to `pre-push` rather than `pre-commit` because the
+suite takes about a minute; move it to the commit stage by changing its `stages`
+entry if you prefer.  It uses `language: system` and the project venv
+(`.venv/bin/python`) because the tests import `pyosys`, which is installed
+system-wide and cannot be installed into an isolated pre-commit environment.
+
 ### Test layout
 
 - `tests/test_proof_strategy.py` — unit tests for the JSON parser.

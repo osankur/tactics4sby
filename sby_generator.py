@@ -15,7 +15,6 @@ from sby_script import SbyScript, VerificationCondition
 class SbyGenerator:
     strategy: parser.ProofStrategy
     cfg: configuration.Configuration
-    sby_file: Path
     verbose: bool = False
     verbose_yosys: bool = False
 
@@ -24,7 +23,7 @@ class SbyGenerator:
     # task and group names used so far
     _task_and_group_names: set[str] = dataclasses.field(default_factory=set)
 
-    def get_sby_script(self) -> SbyScript:
+    def get_sby_script(self, sby_file) -> SbyScript:
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
@@ -37,7 +36,7 @@ class SbyGenerator:
             [],
             list(self.strategy.files),
             self.vcs,
-            self.sby_file,
+            sby_file,
             self.cfg,
         )
 

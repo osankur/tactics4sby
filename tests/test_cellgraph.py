@@ -1,5 +1,4 @@
 from pathlib import Path
-from pyosys import libyosys as ys  # type: ignore
 import cell_graph
 from logger import setup_logging
 import configuration

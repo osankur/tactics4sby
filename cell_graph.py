@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pyosys import libyosys as ys  # type: ignore
 from logger import logger
-import parser
 
 
 Connection = tuple[ys.IdString, ys.SigSpec]

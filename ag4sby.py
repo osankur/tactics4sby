@@ -121,8 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.summarize:
             print(parser.summarize(strategy))
         sby_file = cfg.basedir / (strategy_path.stem + ".sby")
-        generator = sby_generator.SbyGenerator(strategy, cfg, sby_file)
-        sby = generator.get_sby_script()
+        generator = sby_generator.SbyGenerator(strategy, cfg)
+        sby = generator.get_sby_script(sby_file)
         if sby_file.exists() and not args.force:
             raise FileExistsError(f"{sby_file} already exists; use -f to overwrite it")
         with open(sby_file, "w") as f:
