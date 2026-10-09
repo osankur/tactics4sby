@@ -14,9 +14,9 @@ import tempfile
 def main(argv: list[str] | None = None) -> int:
     """Parse a proof strategy file and print a summary of it."""
     argparser = argparse.ArgumentParser(
-        prog="proof_strategy",
+        prog="tactics4sby",
         usage="%(prog)s [options] <strategy.json>",
-        description="Parse a proof strategy JSON file and print a summary.",
+        description="Produces a .sby configuration file from the given proof strategy file, runs sby, and reports results.",
     )
     argparser.add_argument("strategy", help="path to the proof strategy JSON file")
     argparser.add_argument(

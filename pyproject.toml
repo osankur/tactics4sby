@@ -1,5 +1,5 @@
 # Configures pytest so that the flat modules at the repository root
-# (ag4sby.py, cell_io.py, delay_cells.py, logger.py) are importable from
+# (tactics4sby.py, cell_io.py, delay_cells.py, logger.py) are importable from
 # tests/ without any sys.path manipulation in the test files.
 #
 # Run the suite from the repository root:  pytest
@@ -18,7 +18,7 @@ pythonpath = ["."]
 testpaths = ["tests"]
 # Coverage is on by default so that `pytest` alone reports it.  The
 # `patch = ["subprocess"]` setting below is what makes the end-to-end CLI
-# tests (which spawn `python ag4sby.py ...`) contribute to the same report.
+# tests (which spawn `python tactics4sby.py ...`) contribute to the same report.
 addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]

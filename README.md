@@ -151,9 +151,9 @@ system-wide and cannot be installed into an isolated pre-commit environment.
 ### Test layout
 
 - `tests/test_proof_strategy.py` — unit tests for the JSON parser.
-- `tests/test_ag4sby.py` — unit tests for the cell/dependency graph.
+- `tests/test_tactics4sby.py` — unit tests for the cell/dependency graph.
 - `tests/test_cli.py` — end-to-end tests that invoke the command line
-  (`python ag4sby.py -f tests/strategy0.json`) in a subprocess and compare the
+  (`python tactics4sby.py -f tests/strategy0.json`) in a subprocess and compare the
   generated `.sby` against the golden files in `tests/golden/`.
 
 The end-to-end tests contribute to the same coverage report as the unit tests:
@@ -165,7 +165,7 @@ processes, and pytest-cov combines their data files at the end of the run.
 When a change to the generator is intentional, regenerate the expected outputs:
 
 ```sh
-for s in 0 1 2; do .venv/bin/python ag4sby.py -f tests/strategy$s.json; \
+for s in 0 1 2; do .venv/bin/python tactics4sby.py -f tests/strategy$s.json; \
   cp tests/strategy$s.sby tests/golden/strategy$s.sby; done
 ```
 

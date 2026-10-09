@@ -1,7 +1,7 @@
 import logging
 import sys
 
-LOGGER_NAME = "ag4sby"
+LOGGER_NAME = "tactics4sby"
 
 logging.setLoggerClass(logging.Logger)
 logger = logging.getLogger(LOGGER_NAME)
@@ -43,7 +43,7 @@ def setup_logging(
     log_file: str | None = None,
     use_color: bool | None = None,
 ) -> logging.Logger:
-    """Configure the ag4sby logger.
+    """Configure the tactics4sby logger.
 
     verbosity: number of -v flags; maps to WARNING/INFO/DEBUG/TRACE.
     level:     explicit level name or number; overrides verbosity.

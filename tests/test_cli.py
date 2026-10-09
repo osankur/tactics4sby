@@ -1,6 +1,6 @@
 """CLI tests such as
 
-    python ag4sby.py -f tests/strategy0.json
+    python tactics4sby.py -f tests/strategy0.json
 
 Coverage of the subprocess is collected thanks to
 ``[tool.coverage.run] patch = ["subprocess"]`` in ``pyproject.toml``, so these
@@ -19,7 +19,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = REPO_ROOT / "tests"
-AG4SBY = REPO_ROOT / "ag4sby.py"
+AG4SBY = REPO_ROOT / "tactics4sby.py"
 
 PARAM_STRATEGIES = ["strategy0", "strategy2"]
 OTHER_STRATEGIES = [
