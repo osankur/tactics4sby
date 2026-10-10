@@ -65,9 +65,12 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "goals": [
-                    {"module": "main", "tactic": {"name": "split", "split_wire": "y1"}}
-                ],
+                "top": "main",
+                "goal": {
+                    "module": "main",
+                    "tactic": {"name": "split", "split_wire": "y1"},
+                },
+                "subgoals": [],
             }
         }
     )
@@ -82,9 +85,12 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "goals": [
-                    {"module": "main", "tactic": {"name": "split", "split_wire": "y3"}}
-                ],
+                "top": "main",
+                "goal": {
+                    "module": "main",
+                    "tactic": {"name": "split", "split_wire": "y3"},
+                },
+                "subgoals": [],
             }
         }
     )
@@ -99,12 +105,12 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "goals": [
-                    {
-                        "module": "main",
-                        "tactic": {"name": "split", "split_wire": "case1"},
-                    }
-                ],
+                "top": "main",
+                "goal": {
+                    "module": "main",
+                    "tactic": {"name": "split", "split_wire": "case1"},
+                },
+                "subgoals": [],
             }
         }
     )
@@ -147,16 +153,16 @@ _vc_main_split1: smtbmc
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "goals": [
-                    {
-                        "module": "main",
-                        "tactic": {
-                            "name": "split",
-                            "split_wire": "case1",
-                            "case_false": {"name": "none", "options": ["mode bmc"]},
-                        },
-                    }
-                ],
+                "top": "main",
+                "goal": {
+                    "module": "main",
+                    "tactic": {
+                        "name": "split",
+                        "split_wire": "case1",
+                        "case_false": {"name": "none", "options": ["mode bmc"]},
+                    },
+                },
+                "subgoals": [],
             }
         }
     )

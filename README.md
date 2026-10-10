@@ -7,7 +7,9 @@ At the top level, a `proof_strategy` object describes the design under verificat
 
 - `header` describing a list of strings that are Yosys commands to be executed (such as reading Verilog files, activating define macros). The commands are executed in a single Yosys session, in order, before any goal is processed. Relative paths are resolved against the directory containing the strategy file.
 - `files`, a mandatory list of source files to be considered in the sby configuration scripts. It may be empty.
-- `goals`, a list of `goal` objects describing verification goals. This list can be empty.
+- `top`, a mandatory string naming the top module to be considered when synthesizing the design for any of the goals.
+- `goal`, a mandatory `goal` object describing the main goal to be proved.
+- `subgoals`, a mandatory list of `goal` objects describing additional goals that are required to prove the main goal. This list can be empty.
 - Optional `early-assume` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `early-assume` is true then `early-assert` must be true as well. These are strategy-wide flags.
 - Optional `options` and `engines` lists of strings. They default to `["mode prove"]` and `["smtbmc"]`.
 

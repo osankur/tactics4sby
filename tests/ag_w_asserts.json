@@ -6,23 +6,23 @@
     "files": [
       "ag_w_asserts.sv"
     ],
-    "goals": [
-      {
-        "module": "main",
-        "tactic": {
-          "name": "assume_guarantee",
-          "submodules": [
-            {
-              "module": "subm"
-            }
-          ],
-          "instances": [
-            "s1",
-            "intermediate_assert1",
-            "intermediate_assert2"
-          ]
-        }
+    "top": "main",
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "assume_guarantee",
+        "submodules": [
+          {
+            "module": "subm"
+          }
+        ],
+        "instances": [
+          "s1",
+          "intermediate_assert1",
+          "intermediate_assert2"
+        ]
       }
-    ]
+    },
+    "subgoals": []
   }
 }

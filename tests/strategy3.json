@@ -6,13 +6,14 @@
     "files": [
       "module_dep0.sv"
     ],
-    "goals": [
-      {
-        "module": "main",
-        "tactic": {
-          "name": "assume_guarantee"
-        }
-      },
+    "top": "main",
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "assume_guarantee"
+      }
+    },
+    "subgoals": [
       {
         "module": "subm"
       }

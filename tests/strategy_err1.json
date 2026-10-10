@@ -6,18 +6,19 @@
     "files": [
       "module_dep0.sv"
     ],
-    "goals": [
-      {
-        "module": "main",
-        "tactic": {
-          "name": "assume_guarantee",
-          "instances": [
-            {
-              "name": "s_"
-            }
-          ]
-        }
-      },
+    "top": "main",
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "assume_guarantee",
+        "instances": [
+          {
+            "name": "s_"
+          }
+        ]
+      }
+    },
+    "subgoals": [
       {
         "module": "subm"
       }

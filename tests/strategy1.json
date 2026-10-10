@@ -6,16 +6,17 @@
     "files": [
       "module_dep1.sv"
     ],
-    "goals": [
-      {
-        "module": "main",
-        "tactic": {
-          "name": "assume_guarantee",
-          "inline": [
-            "s3"
-          ]
-        }
-      },
+    "top": "main",
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "assume_guarantee",
+        "inline": [
+          "s3"
+        ]
+      }
+    },
+    "subgoals": [
       {
         "module": "subm"
       }

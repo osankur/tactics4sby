@@ -25,14 +25,21 @@ FILES = ["module_dep1.sv"]
 
 
 def strategy(goals: list[dict], proof_strategy_fields: dict | None = None) -> str:
-    """A strategy document with the given goals and strategy fields."""
+    """A strategy document with the given goals and strategy fields.
+
+    The first entry becomes the main ``goal``; the remaining ones become
+    ``subgoals``.  An empty list yields a default main goal.
+    """
     fields = proof_strategy_fields or {}
+    main, *rest = goals or [{"module": "main"}]
     return json.dumps(
         {
             "proof_strategy": {
                 "header": HEADER,
                 "files": FILES,
-                "goals": goals,
+                "top": "main",
+                "goal": main,
+                "subgoals": rest,
                 **fields,
             }
         }
@@ -80,21 +87,94 @@ def test_leaf_goal():
     assert result.header == tuple(HEADER)
     assert result.files == tuple(FILES)
 
-    (goal,) = result.goals
+    goal = result.goal
     assert goal == Goal(module="main", tactic=None)
     assert not result.early_assume
     assert not result.early_assert
 
 
 def test_defaults_are_none():
-    (goal,) = parse_string(strategy([{"module": "main"}])).goals
+    goal = parse_string(strategy([{"module": "main"}])).goal
     assert goal.tactic is None
     assert goal.name is None
 
 
-def test_empty_goals_list_is_allowed():
+def test_empty_subgoals_list_is_allowed():
     result = parse_string(strategy([]))
-    assert result == ProofStrategy(header=tuple(HEADER), files=tuple(FILES), goals=())
+    assert result == ProofStrategy(
+        header=tuple(HEADER),
+        files=tuple(FILES),
+        top="main",
+        goal=Goal(module="main"),
+        subgoals=(),
+    )
+
+
+def test_top_is_parsed():
+    result = parse_string(strategy([{"module": "main"}], {"top": "dut"}))
+    assert result.top == "dut"
+
+
+def test_top_is_required():
+    document = json.dumps(
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": FILES,
+                "goal": {"module": "main"},
+                "subgoals": [],
+            }
+        }
+    )
+    with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'top'"):
+        parse_string(document)
+
+
+def test_top_must_be_a_non_empty_string():
+    with pytest.raises(ProofStrategyError, match="proof_strategy.top"):
+        parse_string(strategy([{"module": "main"}], {"top": 42}))
+    with pytest.raises(ProofStrategyError, match="must not be empty"):
+        parse_string(strategy([{"module": "main"}], {"top": "  "}))
+
+
+def test_goal_is_required():
+    document = json.dumps(
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": FILES,
+                "top": "main",
+                "subgoals": [],
+            }
+        }
+    )
+    with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'goal'"):
+        parse_string(document)
+
+
+def test_subgoals_is_required():
+    document = json.dumps(
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": FILES,
+                "top": "main",
+                "goal": {"module": "main"},
+            }
+        }
+    )
+    with pytest.raises(
+        ProofStrategyError, match="missing required key\\(s\\): 'subgoals'"
+    ):
+        parse_string(document)
+
+
+def test_goal_and_subgoals_are_parsed_separately():
+    result = parse_string(
+        strategy([{"module": "main"}, {"module": "a"}, {"module": "b"}])
+    )
+    assert result.goal == Goal(module="main")
+    assert result.subgoals == (Goal(module="a"), Goal(module="b"))
 
 
 def test_assertions_and_assumptions_are_gone():
@@ -125,7 +205,7 @@ def test_assertions_rejected_on_instance_entry():
 
 def test_goal_optional_name():
     result = parse_string(strategy([{"module": "main", "name": "sanity"}]))
-    (goal,) = result.goals
+    goal = result.goal
     assert goal.name == "sanity"
     assert goal.module == "main"
 
@@ -146,16 +226,17 @@ def test_json_path_on_goals():
             [{"module": "a"}, {"module": "b", "tactic": ag(instances=[inst("s")])}]
         )
     )
-    (first, second) = result.goals
-    assert first.json_path == "proof_strategy.goals[0]"
-    assert second.json_path == "proof_strategy.goals[1]"
+    first = result.goal
+    (second,) = result.subgoals
+    assert first.json_path == "proof_strategy.goal"
+    assert second.json_path == "proof_strategy.subgoals[0]"
     assert second.tactic is not None
-    assert second.tactic.json_path == "proof_strategy.goals[1].tactic"
+    assert second.tactic.json_path == "proof_strategy.subgoals[0].tactic"
     assert isinstance(second.tactic, AssumeGuaranteeTactic)
     assert second.tactic.instances
     assert (
         second.tactic.instances[0].json_path
-        == "proof_strategy.goals[1].tactic.instances[0]"
+        == "proof_strategy.subgoals[0].tactic.instances[0]"
     )
 
 
@@ -172,30 +253,30 @@ def test_json_path_on_nested_tactics():
             ]
         )
     )
-    (goal,) = result.goals
-    assert goal.json_path == "proof_strategy.goals[0]"
+    goal = result.goal
+    assert goal.json_path == "proof_strategy.goal"
     ag_tactic = goal.tactic
     assert isinstance(ag_tactic, AssumeGuaranteeTactic)
     assert ag_tactic.instances
     (instance,) = ag_tactic.instances
-    assert instance.json_path == "proof_strategy.goals[0].tactic.instances[0]"
+    assert instance.json_path == "proof_strategy.goal.tactic.instances[0]"
     outer = instance.tactic
     assert isinstance(outer, SplitTactic)
-    assert outer.json_path == ("proof_strategy.goals[0].tactic.instances[0].tactic")
+    assert outer.json_path == ("proof_strategy.goal.tactic.instances[0].tactic")
     inner = outer.case_true
     assert isinstance(inner, SplitTactic)
     assert inner.json_path == (
-        "proof_strategy.goals[0].tactic.instances[0].tactic.case_true"
+        "proof_strategy.goal.tactic.instances[0].tactic.case_true"
     )
 
 
 def test_json_path_excluded_from_equality():
     # two goals that differ only in provenance compare equal
-    a = Goal(module="main", json_path="proof_strategy.goals[0]")
+    a = Goal(module="main", json_path="proof_strategy.goal")
     b = Goal(module="main", json_path="somewhere.else")
     assert a == b
     # but any real field difference still distinguishes them
-    assert a != Goal(module="other", json_path="proof_strategy.goals[0]")
+    assert a != Goal(module="other", json_path="proof_strategy.goal")
 
 
 def test_parsed_strategy_json_path_is_document_root():
@@ -254,7 +335,7 @@ def test_assume_guarantee_with_instances():
             ]
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances == (Instance(name="s1"), Instance(name="s2"))
@@ -271,7 +352,7 @@ def test_instance_can_carry_a_tactic():
             ]
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances
@@ -308,7 +389,7 @@ def test_assume_guarantee_main_vc_tactic():
     result = parse_string(
         strategy([{"module": "t", "tactic": ag(tactic=cutpoint("w"))}])
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.tactic == CutpointTactic(selection="w")
 
@@ -326,7 +407,7 @@ def test_assume_guarantee_is_recursive_through_instance_tactics():
             ]
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances
@@ -343,7 +424,7 @@ def test_assume_guarantee_is_recursive_through_instance_tactics():
 def test_auto_defaults_to_true():
     """A bare assume_guarantee means automatic ordering, all instances."""
     result = parse_string(strategy([{"module": "t", "tactic": ag()}]))
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.auto is True
     assert tactic.instances is None
@@ -354,7 +435,7 @@ def test_manual_mode_is_opt_in():
     result = parse_string(
         strategy([{"module": "t", "tactic": ag(auto=False, instances=[inst("s1")])}])
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.auto is False
     assert tactic.instances == (Instance(name="s1"),)
@@ -382,14 +463,14 @@ def test_manual_mode_keeps_the_given_order():
             ]
         )
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances == (Instance(name="s2"), Instance(name="s1"))
 
 
 def test_auto_mode_allows_omitting_instances():
     result = parse_string(strategy([{"module": "t", "tactic": ag(auto=True)}]))
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.auto is True
     assert tactic.instances is None
@@ -407,7 +488,7 @@ def test_auto_mode_instances_restrict_the_set():
             ]
         )
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances == (Instance(name="s2"), Instance(name="s3"))
 
@@ -416,7 +497,7 @@ def test_auto_mode_inline_list():
     result = parse_string(
         strategy([{"module": "t", "tactic": ag(auto=True, inline=["s1"])}])
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.inline == ("s1",)
 
@@ -439,7 +520,7 @@ def test_empty_inline_is_allowed():
     result = parse_string(
         strategy([{"module": "t", "tactic": ag(auto=True, inline=[])}])
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.inline == ()
 
@@ -476,7 +557,7 @@ def test_instance_tactics_do_not_store_strategy_early_flags():
         )
     )
     assert result.early_assume and result.early_assert
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances
@@ -499,7 +580,7 @@ def test_early_flags_are_not_tactic_fields():
             {"early-assert": True},
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances
@@ -521,7 +602,7 @@ def test_strategy_early_flags_apply_independently_of_split_cases():
         )
     )
     assert result.early_assert and not result.early_assume
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, SplitTactic)
     assert isinstance(tactic.case_true, AssumeGuaranteeTactic)
@@ -562,7 +643,7 @@ def test_split_with_nested_cases():
             ]
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, SplitTactic)
     assert tactic.case_false is None
@@ -574,7 +655,7 @@ def test_split_with_nested_cases():
 
 def test_split_tactic_defaults_to_none():
     result = parse_string(strategy([{"module": "t", "tactic": split("x")}]))
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, SplitTactic)
 
 
@@ -639,7 +720,7 @@ def test_cutpoint_with_nested_tactic():
     result = parse_string(
         strategy([{"module": "t", "tactic": cutpoint("w", tactic=split("x"))}])
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, CutpointTactic)
     assert tactic.selection == "w"
     assert isinstance(tactic.tactic, SplitTactic)
@@ -647,7 +728,7 @@ def test_cutpoint_with_nested_tactic():
 
 def test_cutpoint_without_nested_tactic():
     result = parse_string(strategy([{"module": "t", "tactic": cutpoint("w")}]))
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, CutpointTactic)
     assert tactic.tactic is None
 
@@ -661,7 +742,7 @@ def test_inductive_assume_guarantee_is_parsed():
     result = parse_string(
         strategy([{"module": "t", "tactic": iag(instances=[inst("s1")])}])
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances == (Instance(name="s1"),)
@@ -682,7 +763,7 @@ def test_inductive_assume_guarantee_has_the_same_fields():
             ]
         )
     )
-    (tactic,) = [o.tactic for o in result.goals]
+    tactic = result.goal.tactic
     assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
     assert tactic.auto is False
     assert tactic.tactic == CutpointTactic(selection="w")
@@ -703,9 +784,9 @@ def test_options_and_engines_on_proof_strategy():
 
 
 def test_options_and_engines_on_goal():
-    (goal,) = parse_string(
+    goal = parse_string(
         strategy([{"module": "t", "options": ["mode bmc"], "engines": ["abc"]}])
-    ).goals
+    ).goal
     assert goal.options == ("mode bmc",)
     assert goal.engines == ("abc",)
 
@@ -723,7 +804,7 @@ def test_options_and_engines_are_not_inherited_by_tactic():
             ]
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.options == ()
@@ -747,7 +828,7 @@ def test_tactic_options_override_goal():
             ]
         )
     )
-    (goal,) = result.goals
+    goal = result.goal
     tactic = goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.options == ("mode prove",)
@@ -772,7 +853,16 @@ def test_engines_must_be_an_array_of_strings():
 
 
 def test_files_is_required():
-    document = json.dumps({"proof_strategy": {"header": HEADER, "goals": []}})
+    document = json.dumps(
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "top": "main",
+                "goal": {"module": "main"},
+                "subgoals": [],
+            }
+        }
+    )
     with pytest.raises(
         ProofStrategyError, match="missing required key\\(s\\): 'files'"
     ):
@@ -781,7 +871,15 @@ def test_files_is_required():
 
 def test_files_must_be_an_array_of_strings():
     document = json.dumps(
-        {"proof_strategy": {"header": HEADER, "files": "a.sv", "goals": []}}
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": "a.sv",
+                "top": "main",
+                "goal": {"module": "main"},
+                "subgoals": [],
+            }
+        }
     )
     with pytest.raises(ProofStrategyError, match="expected an array of strings"):
         parse_string(document)
@@ -789,7 +887,15 @@ def test_files_must_be_an_array_of_strings():
 
 def test_files_entries_must_be_strings():
     document = json.dumps(
-        {"proof_strategy": {"header": HEADER, "files": [1], "goals": []}}
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": [1],
+                "top": "main",
+                "goal": {"module": "main"},
+                "subgoals": [],
+            }
+        }
     )
     with pytest.raises(ProofStrategyError, match="proof_strategy.files\\[0\\]"):
         parse_string(document)
@@ -797,7 +903,15 @@ def test_files_entries_must_be_strings():
 
 def test_files_may_be_empty():
     document = json.dumps(
-        {"proof_strategy": {"header": HEADER, "files": [], "goals": []}}
+        {
+            "proof_strategy": {
+                "header": HEADER,
+                "files": [],
+                "top": "main",
+                "goal": {"module": "main"},
+                "subgoals": [],
+            }
+        }
     )
     assert parse_string(document).files == ()
 
@@ -808,7 +922,9 @@ def test_files_is_parsed_in_order():
             "proof_strategy": {
                 "header": HEADER,
                 "files": ["b.sv", "a.sv"],
-                "goals": [],
+                "top": "main",
+                "goal": {"module": "main"},
+                "subgoals": [],
             }
         }
     )
@@ -823,12 +939,18 @@ def test_files_is_parsed_in_order():
 @pytest.mark.parametrize(
     "document",
     [
-        '{"proof_strategy": {"header": [] "files": [], "goals": []}}',
+        '{"proof_strategy": {"header": [] "files": [], "top": "main", '
+        '"goal": {}, "subgoals": []}}',
         "",
         "null",
         "[]",
-        '{"context": {"header": [], "files": [], "goals": []}}',  # old root key
-        '{"proof_strategy": {"header": [], "files": [], "goals": []}, "extra": 1}',
+        # old root key
+        '{"context": {"header": [], "files": [], "top": "main", '
+        '"goal": {}, "subgoals": []}}',
+        # old `goals` key instead of `goal`/`subgoals`
+        '{"proof_strategy": {"header": [], "files": [], "top": "main", "goals": []}}',
+        '{"proof_strategy": {"header": [], "files": [], "top": "main", '
+        '"goal": {}, "subgoals": []}, "extra": 1}',
     ],
 )
 def test_malformed_documents_raise(document):
@@ -849,7 +971,7 @@ def test_error_messages_carry_the_json_path():
                 ]
             )
         )
-    assert "proof_strategy.goals[1].tactic.instances[1].name" in str(excinfo.value)
+    assert "proof_strategy.subgoals[0].tactic.instances[1].name" in str(excinfo.value)
 
 
 def test_bad_json_reports_line_and_column():
@@ -868,7 +990,7 @@ def test_parse_file_records_the_source(tmp_path: Path):
 
     result = parse_file(path)
     assert result.source == path
-    assert result.goals[0].module == "main"
+    assert result.goal.module == "main"
     # source is excluded from equality, so two reads compare equal
     assert result == parse_file(path)
 
@@ -896,4 +1018,4 @@ def test_shipped_examples_parse(name: str):
     result = parse_file(strategy_path)
     assert result.source == strategy_path
     assert result.header, "examples must have a non-empty header"
-    assert all(isinstance(o, Goal) for o in result.goals)
+    assert all(isinstance(o, Goal) for o in (result.goal, *result.subgoals))

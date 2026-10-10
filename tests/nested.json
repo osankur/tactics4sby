@@ -6,39 +6,40 @@
     "files": [
       "module_dep2.sv"
     ],
-    "goals": [
-      {
-        "module": "main",
+    "top": "main",
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "cutpoint",
+        "selection": "main/ycase",
         "tactic": {
-          "name": "cutpoint",
-          "selection": "main/ycase",
+          "name": "assume_guarantee",
           "tactic": {
-            "name": "assume_guarantee",
-            "tactic": {
-              "name": "cutpoint",
-              "selection": "w1"
-            },
-            "instances": [
-              {
-                "name": "s1",
-                "tactic": {
-                  "name": "cutpoint",
-                  "selection": "w2"
-                }
-              },
-              {
-                "name": "s2"
+            "name": "cutpoint",
+            "selection": "w1"
+          },
+          "instances": [
+            {
+              "name": "s1",
+              "tactic": {
+                "name": "cutpoint",
+                "selection": "w2"
               }
-            ],
-            "engines": [
-              "smtbmc"
-            ],
-            "options": [
-              "mode bmc"
-            ]
-          }
+            },
+            {
+              "name": "s2"
+            }
+          ],
+          "engines": [
+            "smtbmc"
+          ],
+          "options": [
+            "mode bmc"
+          ]
         }
-      },
+      }
+    },
+    "subgoals": [
       {
         "module": "subm"
       }

@@ -27,8 +27,9 @@ class SbyGenerator:
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
-        proven_tops = {o.module for o in self.strategy.goals}
-        for goal in self.strategy.goals:
+        goals = (self.strategy.goal, *self.strategy.subgoals)
+        proven_tops = {o.module for o in goals}
+        for goal in goals:
             self.process_goal(goal, proven_tops)
         return SbyScript(
             toplevel_options,

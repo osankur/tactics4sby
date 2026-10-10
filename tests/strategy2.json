@@ -6,24 +6,25 @@
     "files": [
       "module_dep2.sv"
     ],
+    "top": "main",
     "early-assert": true,
     "early-assume": true,
-    "goals": [
-      {
-        "module": "main",
-        "tactic": {
-          "name": "assume_guarantee",
-          "auto": false,
-          "instances": [
-            {
-              "name": "s1"
-            },
-            {
-              "name": "s2"
-            }
-          ]
-        }
-      },
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "assume_guarantee",
+        "auto": false,
+        "instances": [
+          {
+            "name": "s1"
+          },
+          {
+            "name": "s2"
+          }
+        ]
+      }
+    },
+    "subgoals": [
       {
         "module": "subm"
       }
