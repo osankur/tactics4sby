@@ -6,9 +6,9 @@
     "files": [
       "module_dep2.sv"
     ],
-    "objectives": [
+    "goals": [
       {
-        "top": "main",
+        "module": "main",
         "tactic": {
           "name": "cutpoint",
           "selection": "main/ycase",
@@ -40,7 +40,7 @@
         }
       },
       {
-        "top": "subm"
+        "module": "subm"
       }
     ]
   }

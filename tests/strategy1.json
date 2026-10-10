@@ -6,9 +6,9 @@
     "files": [
       "module_dep1.sv"
     ],
-    "objectives": [
+    "goals": [
       {
-        "top": "main",
+        "module": "main",
         "tactic": {
           "name": "assume_guarantee",
           "inline": [
@@ -17,7 +17,7 @@
         }
       },
       {
-        "top": "subm"
+        "module": "subm"
       }
     ]
   }

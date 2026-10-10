@@ -1,83 +1,65 @@
 # Proof Strategy
 
-Proof strategies are described in JSON files. These describe hierarchical proof techniques to be applied when proving the properties of an input Verilog design.
+Proof strategies are described in JSON files.
+These describe hierarchical proof techniques to be applied when proving the properties of an input Verilog design.
 
 At the top level, a `proof_strategy` object describes the design under verification with the following subfields:
 
-- `header` describing a list of strings that are Yosys commands to be executed (such as reading Verilog files, activating define macros). The commands are executed in a single Yosys session, in order, before any objective is processed. Relative paths are resolved against the directory containing the strategy file.
+- `header` describing a list of strings that are Yosys commands to be executed (such as reading Verilog files, activating define macros). The commands are executed in a single Yosys session, in order, before any goal is processed. Relative paths are resolved against the directory containing the strategy file.
 - `files`, a mandatory list of source files to be considered in the sby configuration scripts. It may be empty.
-- `objectives`, a list of `objective` objects describing verification objectives. This list can be empty.
+- `goals`, a list of `goal` objects describing verification goals. This list can be empty.
 - Optional `early-assume` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `early-assume` is true then `early-assert` must be true as well. These are strategy-wide flags.
-- Optional `options` and `engines` lists of strings. They default to `["mode prove"]` and `["smtbmc"]` and provide the SBY defaults.
+- Optional `options` and `engines` lists of strings. They default to `["mode prove"]` and `["smtbmc"]`.
 
-Each objective is given by the following fields:
+Each goal is given by the following fields:
 
-- `top` the name of the top module to be loaded. This module must exist after `header` has been executed.
-- Optional `name` field, a user-supplied label for the objective (e.g. for logs and error messages). It has no semantic effect. Submodule entries are objectives, so they may be labelled the same way.
-- An optional `tactic` field containing a tactic object. If absent, the objective is a leaf: it is proven directly, without decomposition.
+- `module` the name of the module to be analyzed. This module must exist after `header` has been executed.
+- An optional `tactic` field containing a tactic object. If absent, the goal is a leaf: it is proven directly, without decomposition.
 
-The contract of an objective's `top` module is *all* of its assertions and assumptions. There is no way to select a subset: every assert and assume of the module is part of its contract. This always refers to properties of the `top` module, never to those of its submodules. Objectives are proven independently of one another: no assumption or intermediate result is shared between them.
+The contract of a goal's `module` module is *all* of its assertions and assumptions. There is no way to select a subset but macros can be used when loading a file to select a subset.
+This always refers to properties of the `module`, never to those of its submodules. Goals are proven independently of one another: no assumption or intermediate result is shared between them.
 
 A tactic object contains:
-- A mandatory subfield `name`. We have `assume_guarantee` and `split` tactics allowed.
+- A mandatory subfield `name`. We have the followings tactics allowed: `assume_guarantee`, `cutpoint`, `split`.
+- Optional `options` and `engines` lists. These values, when given, override parents' options and engines values.
 
 ## Tactic: `assume_guarantee`
 
-This tactic object contains an optional `submodules` field holding a non-empty list of `objective`s. A submodule is analysed exactly as a top-level objective, so its entry is an objective in its own right:
-
-- a mandatory `top` field, the name of the submodule (it becomes the top module of the recursive analysis);
-- an optional `tactic` field containing a tactic object, to specify recursively how the submodule's contract is proven.
-
-The `early-assume` / `early-assert` flags are strategy-wide and cannot be specified on an objective or tactic.
-
-If `submodules` is absent, then all modules instantiated inside the objective's `top` module are considered as submodules.
-
-The `top`s of the `submodules` entries must be pairwise distinct.
-
-### Instance ordering: `auto`, `instances` and `inline`
-
-The tactic also decides which module instances take part in the assume-guarantee proof and in which order they are considered. This is controlled by three fields:
+The tactic decides which module instances take part in the assume-guarantee proof and in which order they are considered. This is controlled by three fields:
 
 - `auto`, an optional Boolean (default `true`), selects whether the order of the instances is computed automatically or given by the user.
-- `instances`, an optional non-empty list of instance names. Its meaning depends on `auto`:
-  - when `auto` is `true` (the default), it may be given; the tactic then only considers these instances, but their ordering is computed automatically.
-  - when `auto` is `false`, it is **required** and gives the order in which the instances are considered. Every instance *not* appearing in this list is inlined.
-- `inline`, an optional list of instance names to inline. It is **only allowed when `auto` is `true`**; in manual mode, inlining is expressed by leaving an instance out of `instances`.
+- `instances`, an optional non-empty list of objects containing the `name` of an instance or a module name. When defined, all instances whose names are given, and all instances of whose module name is given participate in the assume-guarantee decomposition. The order in which the assume-guarantee rule is applied depends on `auto`:
+  - when `auto` is `true` (the default), the ordering is computed automatically (by attempting to compute a topological ordering);
+  - when `auto` is `false`, the `instances` field is **required** and gives the order in which the instances are considered. Every instance *not* appearing in this list is inlined.
+- `inline`, an optional list of instance names to inline. It is **only allowed when `instances` is not given, and thus when `auto` is `true`**. In this case all submodule instances but those that appear in this list participate in the assume-guarantee decomposition.
 
 The names in `instances` (respectively `inline`) must be pairwise distinct.
 
-The role of the submodule objectives and the instances is the following. When applying the assume-guarantee rule, one verification condition is generated for each submodule considered in the hierarchical proof: it consists in proving the contract of the submodule separately. Moreover, a separate verification condition must be proven to establish that the top module guarantees each module instantiation's assumptions (so that the submodule's guarantees can be obtained). The recursive structure of the proof strategy allows the user to specify further tactics to prove each verification condition to be generated.
+The following verification conditions (VC) are generated:
+- Proving the present module by cutting participating submodule instances, and assuming their guarantees. Further tactics can be applied on this VC with the `tactic` field.
+- For each participating submodule instance, proving that the present module ensures the assumptions of the instance. Further tactics can be applied by adding a `tactic` field inside the `instances` list in the instance' object.
 
 ## Tactic: `split`
 
-The object must contain a `split_wire` field containing a Verilog expression, plus optional `case_false` and `case_true` subfields. Each of these, when present, must be a tactic object. An absent case means that the corresponding branch is proven directly, without further decomposition. (An empty object `{}` is not a tactic and is rejected; use the absence of the field to mean "prove directly".) One can thus for instance nest a secondary split tactic inside, say, `case_true`.
+The object must contain a `split_wire` field containing a width-1 wire, plus optional `case_false` and `case_true` subfields. Each of these, when present, must be a tactic object. An absent case means that the corresponding branch is proven directly, without further decomposition.
 
-The `split_wire` is evaluated in the module owning the verification condition being split: in the objective's `top` module at the top level, and in the submodule of a submodule objective's tactic.
+The `split_wire` is evaluated in the module owning the verification condition being split: in the goal's `module` at the top level.
 
-Each objective is proven independently of the others.
+## Tactic: `cutpoint`
+Applies cutpoint to a given wire. The mandatory `wire` field is a Yosys select expression referring to the top module's wires.
+This implements user-defined abstractions.
 
 ## Examples
 
 - [tests/strategy1.json](tests/strategy1.json) illustrates the recursive structure with automatic instance ordering (its design references are illustrative, not the fixture).
 - [tests/strategy2.json](tests/strategy2.json) is a complete assume-guarantee proof against the `tests/module_dep1.sv` fixture, with an explicit instance order.
-- [tests/strategy3.json](tests/strategy3.json) shows automatic ordering with an inlined instance and a split nested inside a submodule objective.
+- [tests/strategy3.json](tests/strategy3.json) shows automatic ordering with an inlined instance and a split nested inside a submodule goal.
+- [tests/nested.json](tests/nested.json) illustrates nestings of various tactics.
 
-## Update
-The structure changes as follows.
-- Assume-guarantee tactics no longer have a submodules field. Instead, all objectives now appear in the top level. For each instance appearing in an assume-guarantee tactic, there must be a top level objective for its module.
-- The `instances` field of assume-guarantee tactic is now a list of objects containing a `name` field, which is the name of the instance cell, and an optional `tactic` field which can contain further tactics. When defined, this determines the tactic to use to prove the verification condition for this particular instance.
-- The assume-guarantee tactic itself can also contain an optional `tactic` field which determines the tactic to use for proving the main verification condition for this objective.
+## Resulting Verification Conditions and Hierarchical Proof Structure
+Tactics yield a tree structure that proves a given objective. This structure is displayed by the tool at the end of the call.
 
-- The strategy and each objective can contain optional `options` and `engines` lists. Strategy values default to `["mode prove"]` and `["smtbmc"]`; objective values retain those defaults unless specified.
-- Each tactic can also contain `options` and `engines` lists. Tactic values are local and are never inherited; omitted values are empty lists.
-
-- We have two new tactics:
-  - `cutpoint` which applies cutpoint to a given wire. The mandatory `wire` field is a Yosys select expression referring to the top module's wires.
-  This implements user-defined abstractions.
-  An optional `tactic` field can be used to further apply other tactics.
-  - `inductive_assume_guarantee` which has a structure identical to assume_guarantee. This rule is interesting for proofs that require apparently circular reasoning. In this case, we attempt to prove the assumptions of each instance at time t, by assuming the assertions of other modules up to time t-1.
-
-The file `tests/nested.json` illustrates an example with these new features.
+Verification conditions that are actually checked by the tool are the leaves of this tree of verification conditions, while intermediate nodes' status are derived from the status of child verification conditions.
 
 ## Installation
 

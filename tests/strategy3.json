@@ -6,15 +6,15 @@
     "files": [
       "module_dep0.sv"
     ],
-    "objectives": [
+    "goals": [
       {
-        "top": "main",
+        "module": "main",
         "tactic": {
           "name": "assume_guarantee"
         }
       },
       {
-        "top": "subm"
+        "module": "subm"
       }
     ]
   }

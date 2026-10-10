@@ -6,9 +6,9 @@
     "files": [
       "ag_w_asserts.sv"
     ],
-    "objectives": [
+    "goals": [
       {
-        "top": "main",
+        "module": "main",
         "tactic": {
           "name": "assume_guarantee",
           "instances": [
@@ -25,7 +25,7 @@
         }
       },
       {
-        "top": "subm"
+        "module": "subm"
       }
     ]
   }

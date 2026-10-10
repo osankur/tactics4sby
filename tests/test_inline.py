@@ -65,8 +65,8 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "objectives": [
-                    {"top": "main", "tactic": {"name": "split", "split_wire": "y1"}}
+                "goals": [
+                    {"module": "main", "tactic": {"name": "split", "split_wire": "y1"}}
                 ],
             }
         }
@@ -82,8 +82,8 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "objectives": [
-                    {"top": "main", "tactic": {"name": "split", "split_wire": "y3"}}
+                "goals": [
+                    {"module": "main", "tactic": {"name": "split", "split_wire": "y3"}}
                 ],
             }
         }
@@ -99,8 +99,11 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "objectives": [
-                    {"top": "main", "tactic": {"name": "split", "split_wire": "case1"}}
+                "goals": [
+                    {
+                        "module": "main",
+                        "tactic": {"name": "split", "split_wire": "case1"},
+                    }
                 ],
             }
         }
@@ -144,9 +147,9 @@ _vc_main_split1: smtbmc
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "objectives": [
+                "goals": [
                     {
-                        "top": "main",
+                        "module": "main",
                         "tactic": {
                             "name": "split",
                             "split_wire": "case1",

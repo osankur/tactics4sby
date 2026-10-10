@@ -27,9 +27,9 @@ class SbyGenerator:
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
-        proven_tops = {o.top for o in self.strategy.objectives}
-        for objective in self.strategy.objectives:
-            self.process_objective(objective, proven_tops)
+        proven_tops = {o.module for o in self.strategy.goals}
+        for goal in self.strategy.goals:
+            self.process_goal(goal, proven_tops)
         return SbyScript(
             toplevel_options,
             list(self.strategy.engines),
@@ -54,7 +54,7 @@ class SbyGenerator:
         vc_path: str,
         pre_script: list[str],
         cg: dict[str, CellGraph],
-        parent_objective: parser.Objective,
+        parent_goal: parser.Goal,
         proven_tops: set[str],
     ) -> VerificationCondition | None:
         """
@@ -74,13 +74,13 @@ class SbyGenerator:
         if isinstance(tactic, parser.AssumeGuaranteeTactic):
             all_module_names = set(
                 str(_strip_backslash(str(k)))
-                for k in cg[parent_objective.top].design.modules_
+                for k in cg[parent_goal.module].design.modules_
             )
             user_defined_cells = list(
                 filter(
                     lambda cell: cell.name[0] == "\\"
                     and (cell.type[0] == "\\" or cell.type[0] == "$assert"),
-                    cg[parent_objective.top].top_module.cells_.values(),
+                    cg[parent_goal.module].top_module.cells_.values(),
                 )
             )
             user_defined_module_instance_cells = list(
@@ -116,9 +116,7 @@ class SbyGenerator:
                     # the cell name appears in inline
                     if inst.name in inline_names:
                         continue
-                    inst_cell = cg[parent_objective.top].top_module.cell(
-                        f"\\{inst.name}"
-                    )
+                    inst_cell = cg[parent_goal.module].top_module.cell(f"\\{inst.name}")
                     if inst_cell.type == "$assert":
                         participating_assert_names.append(inst.name)
                         participating_names.append(inst.name)
@@ -130,7 +128,7 @@ class SbyGenerator:
                         participating_names.append(inst.name)
                         if _strip_backslash(inst_cell.type) not in proven_tops:
                             raise Exception(
-                                f"{tactic.json_path}: {inst.name} is an instance of module {_strip_backslash(inst_cell.type)} but there is no objective for this module."
+                                f"{tactic.json_path}: {inst.name} is an instance of module {_strip_backslash(inst_cell.type)} but there is no goal for this module."
                             )
                     else:
                         raise Exception(
@@ -142,7 +140,7 @@ class SbyGenerator:
                         continue
                     if inst.name not in proven_tops:
                         raise Exception(
-                            f"{tactic.json_path}: Instances of module {inst.name} appear here but there is no objective for this module."
+                            f"{tactic.json_path}: Instances of module {inst.name} appear here but there is no goal for this module."
                         )
                     for cell in user_defined_module_instance_cells:
                         if _strip_backslash(cell.type) == inst.name:
@@ -158,7 +156,7 @@ class SbyGenerator:
                     )
 
             logger.debug(
-                f"{parent_objective.top}: Generating assume-guarantee verification conditions"
+                f"{parent_goal.module}: Generating assume-guarantee verification conditions"
             )
             logger.debug(
                 f"\tParticipating submodule instances: {participating_submodule_instance_names}"
@@ -169,7 +167,7 @@ class SbyGenerator:
             logger.debug(f"\tInlined: {inline_names}")
 
             if tactic.auto:
-                depgraph = cg[parent_objective.top].get_module_dependency_graph(
+                depgraph = cg[parent_goal.module].get_module_dependency_graph(
                     set(participating_names)
                 )
                 logger.debug(f"\tInstance dependency relation:\n{depgraph}")
@@ -178,14 +176,14 @@ class SbyGenerator:
                         Path(
                             (
                                 self.cfg.tmpdir
-                                / (f"instance_deps_{parent_objective.top}.dot")
+                                / (f"instance_deps_{parent_goal.module}.dot")
                             )
                         )
                     )
                 ordered_instances = depgraph.get_topological_ordering()
             else:
                 ordered_instances = list(
-                    cg[parent_objective.top].top_module.cell(f"\\{name}")
+                    cg[parent_goal.module].top_module.cell(f"\\{name}")
                     for name in participating_names
                 )
 
@@ -204,27 +202,25 @@ class SbyGenerator:
                     for inst_cell in cg[submodule_name].submodule_instance_cells:
                         inst_cell_name = _strip_backslash(inst_cell.name)
                         exclude_list.append(
-                            f"{parent_objective.top}/{cell_name}.{inst_cell_name}.*"
+                            f"{parent_goal.module}/{cell_name}.{inst_cell_name}.*"
                         )
                         exclude_list.extend(
                             [
-                                f"{parent_objective.top}/$flatten\\{cell_name}.{inst_cell_name}.*",
-                                f"{parent_objective.top}/$flatten\\{cell_name}.\\{inst_cell_name}.*",
+                                f"{parent_goal.module}/$flatten\\{cell_name}.{inst_cell_name}.*",
+                                f"{parent_goal.module}/$flatten\\{cell_name}.\\{inst_cell_name}.*",
                             ]
                         )
                     script.append(
-                        f"setattr -set _ag_vc_flattened 1 {parent_objective.top}/{cell_name}.* {parent_objective.top}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} {'%d' if exclude_list else ''}"
+                        f"setattr -set _ag_vc_flattened 1 {parent_goal.module}/{cell_name}.* {parent_goal.module}/$flatten\\{cell_name}.* %u {' %d '.join(exclude_list)} {'%d' if exclude_list else ''}"
                     )
                 return script
 
             top_ag_script = [
                 "# Mark check cells at the top level:",
-                f"setattr -set _ag_vc_top 1 {parent_objective.top}/* t:$check %i",
+                f"setattr -set _ag_vc_top 1 {parent_goal.module}/* t:$check %i",
                 "# Flatten cells participating to assume-guarantee:",
                 "flatten "
-                + " ".join(
-                    [f"{parent_objective.top}/{s}" for s in participating_names]
-                ),
+                + " ".join([f"{parent_goal.module}/{s}" for s in participating_names]),
                 "# Mark all check cells of flattened submodules at level 1 but not below:",
             ]
             top_ag_script.extend(
@@ -244,7 +240,7 @@ class SbyGenerator:
                 top_ag_script.extend(
                     [
                         "# Also convert any top-level asserts among instances to assumes",
-                        f"chformal -assert -assert2assume {' '.join([parent_objective.top + '/' + name for name in participating_assert_names])}",
+                        f"chformal -assert -assert2assume {' '.join([parent_goal.module + '/' + name for name in participating_assert_names])}",
                     ]
                 )
             top_ag_script.extend(
@@ -259,15 +255,15 @@ class SbyGenerator:
 
             def _subcell_names_of_cell(cell) -> str:
                 if cell.type == "$assert":
-                    return f"{parent_objective.top}/{_strip_backslash(cell.name)}"
+                    return f"{parent_goal.module}/{_strip_backslash(cell.name)}"
                 else:
-                    return f"{parent_objective.top}/{_strip_backslash(cell.name)}.* {parent_objective.top}/$flatten\\{_strip_backslash(cell.name)}.* %u"
+                    return f"{parent_goal.module}/{_strip_backslash(cell.name)}.* {parent_goal.module}/$flatten\\{_strip_backslash(cell.name)}.* %u"
 
             if self.cfg.dump_dot_circuits:
                 top_ag_script.extend(
                     [
-                        f"select -module {parent_objective.top}",
-                        f"show -stretch -prefix {parent_objective.top} -format svg",
+                        f"select -module {parent_goal.module}",
+                        f"show -stretch -prefix {parent_goal.module} -format svg",
                     ]
                 )
             child_vc = self.process_tactic(
@@ -275,7 +271,7 @@ class SbyGenerator:
                 self._get_task_or_group_name(f"{vc_path}_ag_top"),
                 top_ag_script,
                 cg,
-                parent_objective,
+                parent_goal,
                 proven_tops,
             )
             assert child_vc
@@ -300,9 +296,9 @@ class SbyGenerator:
                 inst_ag_task = self._get_task_or_group_name(f"{vc_path}_ag_{cell_name}")
                 inst_ag_script = [
                     "# Remove all top-level asserts and flatten:",
-                    f"chformal -assert -remove {parent_objective.top}/*",
+                    f"chformal -assert -remove {parent_goal.module}/*",
                     "# Mark assume cells at the top level:",
-                    f"setattr -set _ag_vc_top 1 {parent_objective.top}/* t:$check %i",
+                    f"setattr -set _ag_vc_top 1 {parent_goal.module}/* t:$check %i",
                     "flatten",
                 ]
 
@@ -349,7 +345,7 @@ class SbyGenerator:
                 if self.cfg.dump_dot_circuits:
                     inst_ag_script.extend(
                         [
-                            f"select -module {parent_objective.top}",
+                            f"select -module {parent_goal.module}",
                             f"show -stretch -prefix {inst_ag_task} -format svg",
                         ]
                     )
@@ -358,7 +354,7 @@ class SbyGenerator:
                     inst_ag_task,
                     inst_ag_script,
                     cg,
-                    parent_objective,
+                    parent_goal,
                     proven_tops,
                 )
                 assert subvc
@@ -377,11 +373,11 @@ class SbyGenerator:
                 tactic.tactic,
                 f"{vc_path}_cp",
                 [
-                    f"select -module {parent_objective.top} {tactic.selection} -assert-any",
+                    f"select -module {parent_goal.module} {tactic.selection} -assert-any",
                     f"cutpoint {tactic.selection}",
                 ],
                 cg,
-                parent_objective,
+                parent_goal,
                 proven_tops,
             )
             return VerificationCondition(
@@ -393,14 +389,11 @@ class SbyGenerator:
                 pre_script,
             )
         elif isinstance(tactic, parser.SplitTactic):
-            if (
-                f"\\{tactic.split_wire}"
-                not in cg[parent_objective.top].top_module.wires_
-            ):
+            if f"\\{tactic.split_wire}" not in cg[parent_goal.module].top_module.wires_:
                 raise Exception(
-                    f"{tactic.json_path}: Could not find wire {tactic.split_wire!r} in module {parent_objective.top!r}"
+                    f"{tactic.json_path}: Could not find wire {tactic.split_wire!r} in module {parent_goal.module!r}"
                 )
-            split_wire = cg[parent_objective.top].top_module.wires_[
+            split_wire = cg[parent_goal.module].top_module.wires_[
                 f"\\{tactic.split_wire}"
             ]
             if split_wire.width != 1:
@@ -413,11 +406,11 @@ class SbyGenerator:
                 tactic.case_false if tactic.case_false else parser.NoneTactic(),
                 f"{vc_path}_split0",
                 [
-                    f"select -module {parent_objective.top}",
+                    f"select -module {parent_goal.module}",
                     f"add -assume {tactic.split_wire} -not",
                 ],
                 cg,
-                parent_objective,
+                parent_goal,
                 proven_tops,
             )
             assert child0
@@ -426,11 +419,11 @@ class SbyGenerator:
                 tactic.case_true if tactic.case_true else parser.NoneTactic(),
                 f"{vc_path}_split1",
                 [
-                    f"select -module {parent_objective.top}",
+                    f"select -module {parent_goal.module}",
                     f"add -assume {tactic.split_wire}",
                 ],
                 cg,
-                parent_objective,
+                parent_goal,
                 proven_tops,
             )
             assert child1
@@ -445,32 +438,32 @@ class SbyGenerator:
         else:
             raise Exception(f"Unknown tactic {type(tactic)}")
 
-    def process_objective(self, objective: parser.Objective, proven_tops: set[str]):
-        logger.debug(f"Processing objective {objective.json_path:} {objective.top}")
+    def process_goal(self, goal: parser.Goal, proven_tops: set[str]):
+        logger.debug(f"Processing goal {goal.json_path:} {goal.module}")
 
         cg: dict[str, CellGraph] = cell_graph.get_cell_graphs(
             self.strategy.header,
-            objective.top,
+            goal.module,
             self.strategy.multiclock,
             self.cfg,
         )
 
-        objective_script = [line for line in self.strategy.header]
-        objective_script.extend(
-            [f"hierarchy -top {objective.top}", "proc", "chformal -remove -cover -live"]
+        goal_script = [line for line in self.strategy.header]
+        goal_script.extend(
+            [f"hierarchy -top {goal.module}", "proc", "chformal -remove -cover -live"]
         )
         if self.strategy.early_assert or self.strategy.early_assume:
-            objective_script.append(
+            goal_script.append(
                 "chformal -early -assert "
                 + ("-assume" if self.strategy.early_assume else "")
             )
 
         child_vc = self.process_tactic(
-            objective.tactic,
-            objective.top,
-            objective_script,
+            goal.tactic,
+            goal.module,
+            goal_script,
             cg,
-            objective,
+            goal,
             proven_tops,
         )
         assert child_vc

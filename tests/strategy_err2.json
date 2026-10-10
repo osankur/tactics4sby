@@ -6,9 +6,9 @@
     "files": [
       "module_dep3.sv"
     ],
-    "objectives": [
+    "goals": [
       {
-        "top": "main",
+        "module": "main",
         "tactic": {
           "name": "assume_guarantee",
           "instances": [
@@ -19,7 +19,7 @@
         }
       },
       {
-        "top": "dummy_subm"
+        "module": "dummy_subm"
       }
     ]
   }

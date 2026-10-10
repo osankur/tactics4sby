@@ -6,15 +6,15 @@
     "files": [
       "cyclic.sv"
     ],
-    "objectives": [
+    "goals": [
       {
-        "top": "main",
+        "module": "main",
         "tactic": {
           "name": "assume_guarantee"
         }
       },
       {
-        "top": "subm"
+        "module": "subm"
       }
     ]
   }

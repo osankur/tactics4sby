@@ -234,7 +234,7 @@ def test_cli_strategies_w_errors(workdir: Path):
     result = run_main_program("-f", "strategy_err0.json", cwd=workdir)
     assert result.returncode != 0
     assert (
-        "s1 is an instance of module subm but there is no objective for this module"
+        "s1 is an instance of module subm but there is no goal for this module"
         in result.stderr
     )
     result = run_main_program("-f", "strategy_err1.json", cwd=workdir)
@@ -243,7 +243,7 @@ def test_cli_strategies_w_errors(workdir: Path):
 
     result = run_main_program("-f", "strategy_err2.json", cwd=workdir)
     assert result.returncode != 0
-    "s1 is an instance of module subm but there is no objective for this module" in result.stderr
+    "s1 is an instance of module subm but there is no goal for this module" in result.stderr
 
     result = run_main_program("-f", "ag_w_asserts_err0.json", cwd=workdir)
     assert result.returncode != 0

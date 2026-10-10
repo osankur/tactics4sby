@@ -15,7 +15,7 @@ __all__ = [
     "CutpointTactic",
     "SplitTactic",
     "Instance",
-    "Objective",
+    "Goal",
     "ProofStrategy",
     "parse_file",
     "parse_string",
@@ -45,7 +45,7 @@ TACTIC_NAMES: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class Tactic:
-    """Base class for the tactics an objective or VC can be decomposed with.
+    """Base class for the tactics an goal or VC can be decomposed with.
 
     ``name`` is the string that selects this tactic in the JSON file.
     ``json_path`` records where this object was parsed from and is excluded
@@ -94,7 +94,7 @@ class AssumeGuaranteeTactic(Tactic):
     (``auto`` false) it is required, so it is never ``None`` there.
 
     ``tactic``, when given, is the tactic used to prove the main verification
-    condition of this objective.
+    condition of this goal.
     """
 
     auto: bool = True
@@ -121,7 +121,7 @@ class InductiveAssumeGuaranteeTactic(AssumeGuaranteeTactic):
 class CutpointTactic(Tactic):
     """Apply ``cutpoint`` to a selection, implementing a user-defined abstraction.
 
-    ``selection`` is a Yosys select expression referring to the top module's wires.
+    ``selection`` is a Yosys select expression referring to the module module's wires.
     ``tactic``, when given, is applied after the cutpoint.
     """
 
@@ -151,21 +151,21 @@ class SplitTactic(Tactic):
 
 
 @dataclass(frozen=True, kw_only=True)
-class Objective:
-    """A single verification objective.
+class Goal:
+    """A single verification goal.
 
-    ``name`` is an optional user-supplied label identifying the objective (for
+    ``name`` is an optional user-supplied label identifying the goal (for
     logs and error messages); it has no semantic effect.
 
-    The contract of the objective's ``top`` module is *all* of its assertions
+    The contract of the goal's ``module`` module is *all* of its assertions
     and assumptions; there is no way to select a subset.  ``tactic`` is
-    ``None`` for a leaf objective, proven directly.
+    ``None`` for a leaf goal, proven directly.
 
 
-    ``options`` / ``engines`` are the sby defaults for this objective.
+    ``options`` / ``engines`` are the sby defaults for this goal.
     """
 
-    top: str
+    module: str
     name: str | None = None
     tactic: Tactic | None = None
     options: tuple[str, ...] = field(default=(), compare=False)
@@ -178,13 +178,13 @@ class ProofStrategy:
     """A parsed proof strategy: the top-level document.
 
     ``header`` lists the Yosys commands run once, in order, before any
-    objective.  ``files`` is a tuple of source files to be considered in the sby configuration scripts.
+    goal.  ``files`` is a tuple of source files to be considered in the sby configuration scripts.
     ``source`` records where the strategy was read from and is excluded from comparison/hashing.
     """
 
     header: tuple[str, ...]
     files: tuple[str, ...]
-    objectives: tuple[Objective, ...]
+    goals: tuple[Goal, ...]
     source: Path | None = field(default=None, compare=False)
     json_path: str = field(default="", compare=False)
     multiclock: bool = False
@@ -199,14 +199,14 @@ class ProofStrategy:
 # Parser
 # --------------------------------------------------------------------------- #
 
-_OBJECTIVE_REQUIRED = ("top",)
-_OBJECTIVE_OPTIONAL = (
+_GOAL_REQUIRED = ("module",)
+_GOAL_OPTIONAL = (
     "name",
     "tactic",
     "options",
     "engines",
 )
-_PROOF_STRATEGY_REQUIRED = ("header", "files", "objectives")
+_PROOF_STRATEGY_REQUIRED = ("header", "files", "goals")
 _PROOF_STRATEGY_OPTIONAL = (
     "early-assume",
     "early-assert",
@@ -312,11 +312,11 @@ class _Parser:
 
     # -- grammar ----------------------------------------------------------- #
 
-    def objective(self, value: Any, path: str) -> Objective:
-        """Parse an objective from ``proof_strategy.objectives``."""
+    def goal(self, value: Any, path: str) -> Goal:
+        """Parse an goal from ``proof_strategy.goals``."""
         obj = self._object(value, path)
-        self._check_keys(obj, path, _OBJECTIVE_REQUIRED, _OBJECTIVE_OPTIONAL)
-        top = self._string(obj["top"], f"{path}.top")
+        self._check_keys(obj, path, _GOAL_REQUIRED, _GOAL_OPTIONAL)
+        module = self._string(obj["module"], f"{path}.module")
         name = (
             self._string(obj["name"], f"{path}.name")
             if obj.get("name") is not None
@@ -332,8 +332,8 @@ class _Parser:
                 f"{path}.tactic",
             )
 
-        return Objective(
-            top=top,
+        return Goal(
+            module=module,
             name=name,
             tactic=tactic,
             options=options,
@@ -537,19 +537,19 @@ class _Parser:
             self._err(
                 "proof_strategy", "'early-assume' requires 'early-assert' to be true"
             )
-        if not isinstance(ps["objectives"], list):
+        if not isinstance(ps["goals"], list):
             self._err(
-                "proof_strategy.objectives",
-                f"expected an array of objectives, got {type(ps['objectives'])}",
+                "proof_strategy.goals",
+                f"expected an array of goals, got {type(ps['goals'])}",
             )
-        objectives = tuple(
-            self.objective(item, f"proof_strategy.objectives[{index}]")
-            for index, item in enumerate(ps["objectives"])
+        goals = tuple(
+            self.goal(item, f"proof_strategy.goals[{index}]")
+            for index, item in enumerate(ps["goals"])
         )
         return ProofStrategy(
             header=header,
             files=files,
-            objectives=objectives,
+            goals=goals,
             early_assume=early_assume,
             early_assert=early_assert,
             options=self._optional_string_list(ps, "options", "proof_strategy", ()),
@@ -648,18 +648,18 @@ def summarize(strategy: ProofStrategy) -> str:
     lines: list[str] = []
     lines.append(f"header ({len(strategy.header)} command(s)):")
     lines.extend(f"  {command}" for command in strategy.header)
-    lines.append(f"objectives ({len(strategy.objectives)}):")
-    for objective in strategy.objectives:
+    lines.append(f"goals ({len(strategy.goals)}):")
+    for goal in strategy.goals:
         flags: list[str] = []
         if strategy.early_assume:
             flags.append("early-assume")
         if strategy.early_assert:
             flags.append("early-assert")
         suffix = f" [{', '.join(flags)}]" if flags else ""
-        label = f"{objective.name!r} " if objective.name else ""
-        lines.append(f"  - {label}top={objective.top}{suffix}")
-        if objective.tactic is not None:
-            _describe_tactic(objective.tactic, lines, 2)
+        label = f"{goal.name!r} " if goal.name else ""
+        lines.append(f"  - {label}module={goal.module}{suffix}")
+        if goal.tactic is not None:
+            _describe_tactic(goal.tactic, lines, 2)
         else:
             lines.append("    tactic: none (prove directly)")
     return "\n".join(lines)
