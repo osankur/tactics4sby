@@ -11,7 +11,7 @@
       "module": "main",
       "tactic": {
         "name": "cutpoint",
-        "selection": "main/ycase",
+        "selection": "ycase",
         "tactic": {
           "name": "assume_guarantee",
           "tactic": {

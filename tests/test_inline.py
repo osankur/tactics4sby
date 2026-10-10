@@ -125,10 +125,12 @@ chformal -remove -cover -live
 _vc_main_split0:
 select -module main
 add -assume case1 -not
+select -clear
 --
 _vc_main_split1:
 select -module main
 add -assume case1
+select -clear
 --
 
 """

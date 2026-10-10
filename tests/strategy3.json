@@ -4,7 +4,7 @@
       "read_verilog -sv module_dep2.sv"
     ],
     "files": [
-      "module_dep0.sv"
+      "module_dep2.sv"
     ],
     "top": "main",
     "goal": {

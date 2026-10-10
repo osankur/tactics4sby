@@ -7,8 +7,10 @@ module main (
   input logic [4:0] x;
   output logic [4:0] z;
   logic [4:0] y1, y2, y;
-  logic ycase;
+  logic ycase, w1, w2;
   assign ycase = y1[0];
+  assign w1 = y2[0];
+  assign w2 = y2[1];
   subm s1 (
       .clk(clk),
       .x  (x),

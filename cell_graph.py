@@ -72,10 +72,17 @@ def cell_output_bits(
     yield from _connection_bits(cell_outputs(cell), sigmap)
 
 
-def _strip_backslash(id: str, silent_fail: bool = False) -> str:
-    if str(id)[0] != "\n":
-        assert silent_fail or id[0] == "\\", f"{id} does not start with a \\"
-    return str(id)[1:]
+def strip_backslash(id) -> str:
+    if str(id)[0] == "\\":
+        return str(id)[1:]
+    else:
+        return str(id)
+
+
+def ensure_backslash(id: str, silent_fail: bool = False) -> str:
+    if id[0] != "\\":
+        return f"\\{id}"
+    return id
 
 
 def make_model(
@@ -340,7 +347,7 @@ class CellGraph:
         """Return the dependency graph between submodule instances and asserts.
         Restrict the assume and asserts to the given tuples when not None.
 
-        ``participating_instances`` is an optional set of submodule instance or assert names (without backslash) to consider in this graph.
+        ``participating_instances`` is an optional set of submodule instance or assert names to consider in this graph.
         """
         if participating_instances is None:
             instance_cells = self.submodule_instance_cells
@@ -350,7 +357,7 @@ class CellGraph:
                 for cell in itertools.chain(
                     self.submodule_instance_cells, self.assert_cells
                 )
-                if _strip_backslash(cell.name) in participating_instances
+                if str(cell.name) in participating_instances
             )
         deps = dict()
         for cell in itertools.chain(instance_cells):
@@ -383,7 +390,4 @@ def get_cell_graphs(
     cfg: configuration.Configuration,
 ) -> dict[str, CellGraph]:
     design: ys.Design = make_model(read_commands, top, opt_multiclock, cfg)
-    return {
-        _strip_backslash(str(name), True): CellGraph(module)
-        for name, module in design.modules_.items()
-    }
+    return {str(name): CellGraph(module) for name, module in design.modules_.items()}

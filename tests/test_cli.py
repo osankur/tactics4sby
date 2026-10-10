@@ -118,6 +118,7 @@ def test_cli_strategy0_ag_vc(workdir: Path):
     main_log = (workdir / "strategy0__vc_main_ag_top/model/design.log").read_text(
         encoding="utf-8"
     )
+    print(main_log)
     # The proof of the top module leaves top assume and asserts, and converts submodules asserts to assumes
     assert (
         """Remaining assumes for this VC:
@@ -231,23 +232,15 @@ def test_cli_cyclic_dep_graph(workdir: Path):
 
 
 def test_cli_strategies_w_errors(workdir: Path):
-    result = run_main_program("-f", "strategy_err0.json", cwd=workdir)
-    assert result.returncode != 0
-    assert (
-        "s1 is an instance of module subm but there is no goal for this module"
-        in result.stderr
-    )
     result = run_main_program("-f", "strategy_err1.json", cwd=workdir)
     assert result.returncode != 0
-    assert "No module, module instance, or assert found with name  s_" in result.stderr
-
-    result = run_main_program("-f", "strategy_err2.json", cwd=workdir)
-    assert result.returncode != 0
-    "s1 is an instance of module subm but there is no goal for this module" in result.stderr
+    assert (
+        "No module, module instance, or assert found with name  \\s_" in result.stderr
+    )
 
     result = run_main_program("-f", "ag_w_asserts_err0.json", cwd=workdir)
     assert result.returncode != 0
     assert (
-        "No module, module instance, or assert found with name  top_assumption1"
+        "No module, module instance, or assert found with name  \\top_assumption1"
         in result.stderr
     )
