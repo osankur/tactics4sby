@@ -79,6 +79,37 @@ The structure changes as follows.
 
 The file `tests/nested.json` illustrates an example with these new features.
 
+## Installation
+
+The tool needs the Yosys Python bindings (`pyosys`), which are built locally
+and installed system-wide.  They have no pip metadata, so they cannot be
+declared as a dependency; instead, whatever environment runs the tool must be
+able to see the system site packages.
+
+With [pipx](https://pipx.pypa.io/):
+
+```sh
+pipx install --system-site-packages .
+```
+
+`--system-site-packages` is required.  Without it pipx creates an isolated
+venv that cannot import `pyosys`, and the tool fails with
+`ModuleNotFoundError: No module named 'pyosys'`.  To reinstall an existing
+installation, add `--force`.
+
+With plain `pip`, use a venv created with the same flag:
+
+```sh
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install .
+```
+
+Either way this installs a `tactics4sby` executable:
+
+```sh
+tactics4sby tests/strategy0.json
+```
+
 ## Development
 
 ### Environment

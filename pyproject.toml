@@ -1,6 +1,43 @@
+[build-system]
+# setuptools is the backend because the project is a flat set of top-level
+# modules (no package directory), which setuptools handles via `py-modules`.
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tactics4sby"
+version = "0.1.0"
+description = "Produces an .sby configuration file from a proof strategy file, runs sby, and reports results."
+readme = "README.md"
+requires-python = ">=3.10"
+# NOTE: `pyosys` is deliberately *not* declared as a dependency.  The project
+# uses a locally built pyosys (Yosys 0.40+50) that has no pip metadata, so
+# declaring it would make pip install PyPI's pyosys and shadow it.  Install it
+# system-wide and use a `--system-site-packages` venv instead.
+dependencies = []
+
+[project.scripts]
+# `pip install .` creates a `tactics4sby` executable that calls main().
+tactics4sby = "tactics4sby:main"
+
+[tool.setuptools]
+# The project is a flat set of modules at the repository root; list them
+# explicitly so setuptools does not try to auto-discover packages (which would
+# also sweep in `tests/`).
+py-modules = [
+    "tactics4sby",
+    "parser",
+    "sby_generator",
+    "sby_script",
+    "configuration",
+    "cell_graph",
+    "logger",
+]
+
 # Configures pytest so that the flat modules at the repository root
-# (tactics4sby.py, cell_io.py, delay_cells.py, logger.py) are importable from
-# tests/ without any sys.path manipulation in the test files.
+# (tactics4sby.py, cell_graph.py, logger.py, ...) are importable from tests/
+# without any sys.path manipulation in the test files, even when the project
+# has not been installed.
 #
 # Run the suite from the repository root:  pytest
 # Coverage is reported automatically (see [tool.coverage.*] below).

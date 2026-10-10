@@ -257,6 +257,11 @@ class SbyScript:
                     result.append(child_prefix + detail_prefix + detail)
             for r in vc.vc_results:
                 if r["status"] == "FAIL":
+                    result.append(
+                        child_prefix
+                        + detail_prefix
+                        + f"failing {r['kind']}: {r['name']} at {r['location']}"
+                    )
                     result.append(child_prefix + detail_prefix + f"trace: {r['trace']}")
             if vc.status == "ERROR":
                 vc_dir = self.sby_file.parent / f"{self.sby_file.stem}_{vc.name}"

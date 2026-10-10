@@ -41,6 +41,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Force or disable coloured log output (default: auto-detect)",
     )
     argparser.add_argument(
+        "--dump-dot-circuits",
+        action="store_true",
+        dest="dump_dot_circuits",
+        default=False,
+        help="Let the sby script dump circuits in dot format",
+    )
+    argparser.add_argument(
         "--summarize",
         action="store_true",
         dest="summarize",
@@ -102,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg = configuration.Configuration(strategy_path.parent, args.verbosity)
         cfg.verbose_sby = args.verbose_sby
         cfg.verbose_yosys = args.verbose_yosys
+        cfg.dump_dot_circuits = args.dump_dot_circuits
         if args.tmp_dir:
             cfg.tmpdir = Path(args.tmp_dir) / strategy_path.stem
             if cfg.tmpdir.exists():

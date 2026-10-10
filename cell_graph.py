@@ -5,7 +5,18 @@ from collections.abc import Iterator, Iterable
 import itertools
 from pathlib import Path
 
-from pyosys import libyosys as ys  # type: ignore
+try:
+    from pyosys import libyosys as ys  # type: ignore
+except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+    raise ModuleNotFoundError(
+        "The Yosys Python bindings ('pyosys') are required but were not found.\n"
+        "They are built locally and installed system-wide, so an isolated\n"
+        "environment cannot see them.  Reinstall with access to the system\n"
+        "site packages, e.g.\n"
+        "    pipx install --force --system-site-packages .\n"
+        "or use a venv created with `--system-site-packages`."
+    ) from exc
+
 from logger import logger
 
 
@@ -61,8 +72,9 @@ def cell_output_bits(
     yield from _connection_bits(cell_outputs(cell), sigmap)
 
 
-def _strip_backslash(id) -> str:
-    assert id[0] == "\\", f"{id} does not start with a \\"
+def _strip_backslash(id: str, silent_fail: bool = False) -> str:
+    if str(id)[0] != "\n":
+        assert silent_fail or id[0] == "\\", f"{id} does not start with a \\"
     return str(id)[1:]
 
 
@@ -372,6 +384,6 @@ def get_cell_graphs(
 ) -> dict[str, CellGraph]:
     design: ys.Design = make_model(read_commands, top, opt_multiclock, cfg)
     return {
-        _strip_backslash(str(name)): CellGraph(module)
+        _strip_backslash(str(name), True): CellGraph(module)
         for name, module in design.modules_.items()
     }

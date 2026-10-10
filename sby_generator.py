@@ -263,12 +263,13 @@ class SbyGenerator:
                 else:
                     return f"{parent_objective.top}/{_strip_backslash(cell.name)}.* {parent_objective.top}/$flatten\\{_strip_backslash(cell.name)}.* %u"
 
-            top_ag_script.extend(
-                [
-                    f"select -module {parent_objective.top}",
-                    f"show -stretch -prefix {parent_objective.top} -format svg",
-                ]
-            )
+            if self.cfg.dump_dot_circuits:
+                top_ag_script.extend(
+                    [
+                        f"select -module {parent_objective.top}",
+                        f"show -stretch -prefix {parent_objective.top} -format svg",
+                    ]
+                )
             child_vc = self.process_tactic(
                 tactic.tactic,
                 self._get_task_or_group_name(f"{vc_path}_ag_top"),
@@ -343,10 +344,15 @@ class SbyGenerator:
                         "select r:FLAVOR=assume -list",
                         "log Remaining asserts for this VC:",
                         "select r:FLAVOR=assert -list",
-                        f"select -module {parent_objective.top}",
-                        f"show -stretch -prefix {inst_ag_task} -format svg",
                     ]
                 )
+                if self.cfg.dump_dot_circuits:
+                    inst_ag_script.extend(
+                        [
+                            f"select -module {parent_objective.top}",
+                            f"show -stretch -prefix {inst_ag_task} -format svg",
+                        ]
+                    )
                 subvc = self.process_tactic(
                     inst.tactic if inst else None,
                     inst_ag_task,
