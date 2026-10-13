@@ -255,7 +255,7 @@ class SbyScript:
                     result.append(child_prefix + detail_prefix + detail)
             vc_dir = self.sby_file.parent / f"{self.sby_file.stem}_{vc.name}"
             vc_dir = Path(os.path.relpath(vc_dir, self.cfg.invocation_dir))
-            result.append(child_prefix + detail_prefix + f"sby logs: {vc_dir}")
+            result.append(child_prefix + detail_prefix + f"  sby logs: {vc_dir}")
             for r in vc.vc_results:
                 if r["status"] == "FAIL":
                     result.append(

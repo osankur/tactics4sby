@@ -1,10 +1,10 @@
 {
   "proof_strategy": {
     "header": [
-      "read_verilog -sv module_dep1.sv"
+      "read_verilog -sv sample1.sv"
     ],
     "files": [
-      "module_dep1.sv"
+      "sample1.sv"
     ],
     "goal": {
       "module": "main",

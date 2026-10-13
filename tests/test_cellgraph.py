@@ -4,7 +4,7 @@ from logger import setup_logging
 import configuration
 
 cfg = configuration.Configuration(Path(__file__).resolve().parent, 0)
-MODULE_DEP2_SV = Path(__file__).resolve().parent / "module_dep2.sv"
+sample2_SV = Path(__file__).resolve().parent / "sample2.sv"
 CYCLIC_DEP_SV = Path(__file__).resolve().parent / "cyclic.sv"
 TOP = "main"
 
@@ -12,7 +12,7 @@ TOP = "main"
 def test_dependency_graph():
     cfg.verbose_yosys = True
     design = cell_graph.make_model(
-        (str(f"read_verilog -sv {MODULE_DEP2_SV}"),), TOP, False, cfg
+        (str(f"read_verilog -sv {sample2_SV}"),), TOP, False, cfg
     )
     top = design.module(f"\\{TOP}")
 

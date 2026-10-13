@@ -50,15 +50,8 @@ def top_module(design, name: str = "main"):
     return design.module(f"\\{name}")
 
 
-# --------------------------------------------------------------------------- #
-# Strategy tests (parsed straight from a string, no temp file)
-# --------------------------------------------------------------------------- #
-
-
 def test_inline_strategy_parses(make_design, monkeypatch):
     cfg = make_design(CHAIN_SV)
-    # The CLI does ``os.chdir(cfg.basedir)`` before building, which is what makes
-    # the relative paths in ``header`` resolve. Mirror that here.
     monkeypatch.chdir(cfg.basedir)
     strategy_json = json.dumps(
         {
@@ -116,6 +109,7 @@ def test_inline_strategy_parses(make_design, monkeypatch):
 _vc_main:
 read_verilog -sv design.sv
 hierarchy -top main
+hierarchy -top main
 proc
 chformal -remove -cover -live
 --
@@ -144,6 +138,7 @@ _vc_main_split1: smtbmc
     sby = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
     sby.dump(buf)
     output = buf.getvalue()
+    print(output)
     assert script in output
     assert options_and_engines in output
 

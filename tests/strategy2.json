@@ -1,10 +1,10 @@
 {
   "proof_strategy": {
     "header": [
-      "read_verilog -sv module_dep2.sv"
+      "read_verilog -sv sample2.sv"
     ],
     "files": [
-      "module_dep2.sv"
+      "sample2.sv"
     ],
     "early-assert": true,
     "early-assume": true,

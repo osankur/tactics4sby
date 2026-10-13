@@ -22,7 +22,7 @@ endmodule
 
 module subm (
     input clk,
-    input logic [4:0] x,
+    inout logic [4:0] x,
     output logic [4:0] y
 );
   initial y = 1;

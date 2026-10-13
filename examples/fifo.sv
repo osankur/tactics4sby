@@ -1,3 +1,23 @@
+// -- This file was copied and modified from the sby repository at https://github.com/yosysHQ/sby
+// -- (see docs/examples/fifo.sv)
+// --
+// -- SymbiYosys (sby) -- Front-end for Yosys-based formal verification flows
+// --
+// -- Copyright (C) 2016  Claire Xenia Wolf <claire@yosyshq.com>
+// --
+// -- Permission to use, copy, modify, and/or distribute this software for any
+// -- purpose with or without fee is hereby granted, provided that the above
+// -- copyright notice and this permission notice appear in all copies.
+// --
+// -- THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// -- WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// -- MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+// -- ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// -- WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+// -- ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+// -- OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+
 // address generator/counter
 module addr_gen #(
     parameter MAX_DATA  = 16,
@@ -61,7 +81,8 @@ module fifo #(
   );
 
   addr_gen #(
-      .MAX_DATA(MAX_DATA)
+      .MAX_DATA (MAX_DATA),
+      .ADDR_SIZE(ADDR_SIZE)
   ) fifo_reader (
       .en  (ren || rskip),
       .clk (clk),
@@ -103,6 +124,7 @@ module fifo #(
     if (rst) prev_data_count <= 0;
     if (~rst) begin
       prev_data_count <= data_count;
+      // ~init /\ $post(wen) /\ ~$past(ren) /\ $past(count)<MAX_DATA-1 -> count == prev_data_count + 1 && ~empty
       fifo_assert_incr :
       assert (init || !$past(
           wen
@@ -110,11 +132,10 @@ module fifo #(
           ren
       ) || $past(
           rst
-      ) || $past(
+      ) || !($past(
           count
-      ) >= MAX_DATA || count == prev_data_count + 1 && ~empty);
-      assert (~$past(rst) || count == 0 && prev_data_count == 0);
-      assert (~($past(count) < MAX_DATA) || count <= MAX_DATA);
+      ) < MAX_DATA - 1) || count == prev_data_count + 1 && ~empty);
+      // ~init /\ ~$post(wen) /\ $past(ren) /\ ~empty -> count == prev_data_count - 1 && ~full
       fifo_assert_decr :
       assert (init || $past(
           wen
@@ -123,10 +144,16 @@ module fifo #(
       ) || $past(
           rst
       ) || empty || count == prev_data_count - 1 && ~full);
+
+      // After rst, both count and prev_data_count are 0
+      assert (~$past(rst) || count == 0 && prev_data_count == 0);
+      // ~init /\ ~$post(wen) /\ ~$past(ren) /\ ~$past(rst) -> count == prev_data_count
       assert (init || $past(wen) || $past(ren) || $past(rst) || count == prev_data_count);
+      // count is unchanged when both wen and ren are asserted
+      // ~init /\ ~$past(rst) /\ $post(wen) /\ $past(ren)  -> count == $past(count)
       assert (init || $past(rst) || !($past(wen) && $past(ren)) || count == $past(count));
+      // empty <-> count == 0
       fifo_empt1 : assert ((~empty || count == 0) && (count != 0 || empty));
-      assert (~init || empty || count == 0);
     end
   end
 `endif

@@ -3,6 +3,7 @@ import subprocess
 from dataclasses import dataclass, field
 from collections.abc import Iterator, Iterable
 import itertools
+import re
 from pathlib import Path
 
 try:
@@ -83,6 +84,27 @@ def ensure_backslash(id: str) -> str:
     if id[0] != "\\" and id[0] != "$":
         return f"\\{id}"
     return id
+
+
+def is_paramod_of(module_name: str, base_module_name: str) -> bool:
+    """Whether ``module_name`` is a Yosys instantiation of ``base_module_name``.
+
+    Yosys names the module it derives for a parameterized instantiation
+    ``$paramod\\<module>\\<param>=<value>...`` or
+    ``$paramod$[0-9a-f]+\\<module>``
+    e.g.
+    ``$paramod\\fifo\\MAX_DATA=s32'00000000000000000000000000100000`` or
+    ``$paramod$502e203e307143fc86ef5f601ed091f05a4c3cfd\fifo``
+    .
+    Both names may be given with or without their leading backslash.
+    """
+    module_name = strip_backslash(module_name)
+    base_module_name = strip_backslash(base_module_name)
+    paramod_pat = rf"\$paramod\$[0-9a-f]+\\{re.escape(base_module_name)}"
+    return (
+        module_name.startswith(f"$paramod\\{base_module_name}\\")
+        or re.match(paramod_pat, module_name) is not None
+    )
 
 
 def make_model(

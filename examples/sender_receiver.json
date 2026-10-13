@@ -1,0 +1,27 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read -define _AG_=1",
+      "read_verilog -sv fifo.sv",
+      "read_verilog -sv sender_receiver.sv"
+    ],
+    "files": [
+      "fifo.sv",
+      "sender_receiver.sv"
+    ],
+    "goal": {
+      "module": "protocol",
+      "tactic": {
+        "name": "assume_guarantee"
+      }
+    },
+    "subgoals": [
+      {
+        "module": "fifo",
+        "engines": [
+          "abc pdr"
+        ]
+      }
+    ]
+  }
+}

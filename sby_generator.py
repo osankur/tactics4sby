@@ -3,7 +3,6 @@ import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 import queue
-import re
 
 from logger import logger
 import parser
@@ -67,8 +66,12 @@ class SbyGenerator:
         vc_name = module_name.replace("$", "_").replace("'", "_").replace("\\", "_")
         self._generated_module_goals.add(module_name)
         for subgoal in self.strategy.subgoals:
-            pat = rf"\$paramod{module_name}\\"
-            if subgoal.module == module_name or re.match(pat, subgoal.module):
+            if strip_backslash(subgoal.module) == strip_backslash(
+                module_name
+            ) or cell_graph.is_paramod_of(module_name, subgoal.module):
+                logger.debug(
+                    f"Scheduling goal for module {module_name!r} with subgoal {subgoal.json_path}"
+                )
                 self._goal_list.put(
                     parser.Goal(
                         module=module_name,
@@ -79,15 +82,8 @@ class SbyGenerator:
                     )
                 )
                 return
-        self._goal_list.put(
-            parser.Goal(
-                module=module_name,
-                name=vc_name,
-                tactic=subgoal.tactic,
-                options=subgoal.options,
-                engines=subgoal.engines,
-            )
-        )
+        logger.debug(f"Scheduling default goal for module name {module_name!r}")
+        self._goal_list.put(parser.Goal(module=module_name, name=vc_name))
 
     def process_tactic(
         self,

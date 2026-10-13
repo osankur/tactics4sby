@@ -73,10 +73,10 @@ def workdir(tmp_path: Path) -> Path:
     lets the tests run in parallel.
     """
     for name in (
-        "module_dep0.sv",
-        "module_dep1.sv",
-        "module_dep2.sv",
-        "module_dep3.sv",
+        "sample0.sv",
+        "sample1.sv",
+        "sample2.sv",
+        "sample3.sv",
         "cyclic.sv",
         "ag_w_asserts.sv",
     ):
@@ -168,15 +168,15 @@ def test_cli_strategy2_ag_vc(workdir: Path):
     # The asserts and the top assume are anonymous in this case
     main_pattern = r"""
 Remaining assumes for this VC:
-main/\$flatten\\s2\.\$assert\$module_dep2\.sv:[^\n]*
-main/\$flatten\\s1\.\$assert\$module_dep2\.sv:[^\n]*
-main/\$assume\$module_dep2\.sv:[^\n]*
+main/\$flatten\\s2\.\$assert\$sample2\.sv:[^\n]*
+main/\$flatten\\s1\.\$assert\$sample2\.sv:[^\n]*
+main/\$assume\$sample2\.sv:[^\n]*
 Remaining asserts for this VC:
 main/top_assert
 """
     assert re.search(main_pattern, main_log), main_log
     s1_pattern = r"""Remaining assumes for this VC:
-main/\$assume\$module_dep2\.sv:[^\n]*
+main/\$assume\$sample2\.sv:[^\n]*
 Remaining asserts for this VC:
 main/s1\.subm_assume1"""
     s1_log = (workdir / "strategy2__vc_main_ag_s1/model/design.log").read_text(
@@ -186,8 +186,8 @@ main/s1\.subm_assume1"""
 
     # The proof of the instance s1 assumes top assumes and s1's asserts, and proves s2's assume
     s2_pattern = r"""Remaining assumes for this VC:
-main/\$flatten\\s1\.\$assert\$module_dep2\.sv:[^\n]*
-main/\$assume\$module_dep2\.sv:[^\n]*
+main/\$flatten\\s1\.\$assert\$sample2\.sv:[^\n]*
+main/\$assume\$sample2\.sv:[^\n]*
 Remaining asserts for this VC:
 main/s2\.subm_assume1"""
     s2_log = (workdir / "strategy2__vc_main_ag_s2/model/design.log").read_text(
@@ -200,6 +200,7 @@ def test_cli_cyclic_dep_graph(workdir: Path):
     # The dependency graph is logged at debug level, so run with -vv.
     result = run_main_program("-vv", "-f", "cyclic.json", cwd=workdir)
     assert result.returncode == 0
+    print(result.stderr)
     dep_graph = """
 \\s1 depends on:
 \t\\s2

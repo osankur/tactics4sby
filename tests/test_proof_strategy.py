@@ -20,8 +20,8 @@ from parser import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-HEADER = ["read_verilog -sv module_dep1.sv"]
-FILES = ["module_dep1.sv"]
+HEADER = ["read_verilog -sv sample1.sv"]
+FILES = ["sample1.sv"]
 
 
 def strategy(goals: list[dict], proof_strategy_fields: dict | None = None) -> str:

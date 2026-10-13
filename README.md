@@ -54,7 +54,7 @@ This implements user-defined abstractions.
 ## Examples
 
 - [tests/strategy1.json](tests/strategy1.json) illustrates the recursive structure with automatic instance ordering (its design references are illustrative, not the fixture).
-- [tests/strategy2.json](tests/strategy2.json) is a complete assume-guarantee proof against the `tests/module_dep1.sv` fixture, with an explicit instance order.
+- [tests/strategy2.json](tests/strategy2.json) is a complete assume-guarantee proof against the `tests/sample1.sv` fixture, with an explicit instance order.
 - [tests/strategy3.json](tests/strategy3.json) shows automatic ordering with an inlined instance and a split nested inside a submodule goal.
 - [tests/nested.json](tests/nested.json) illustrates nestings of various tactics.
 
