@@ -182,7 +182,7 @@ class SbyScript:
         print_section("script", section_script)
         print_section("files", self.files)
 
-    def to_string(self, show_details: bool = False):
+    def to_string(self, show_details: bool = True):
         lines = []
 
         def add_section(title: str, values: list[str]) -> None:
@@ -204,8 +204,6 @@ class SbyScript:
                 details.append(f"options: {vc.options}")
             if vc.engines:
                 details.append(f"engines: {vc.engines}")
-            if vc.script:
-                details.append(f"script: {vc.script}")
             return details
 
         def render_vc(
@@ -255,6 +253,9 @@ class SbyScript:
             if show_details:
                 for detail in vc_details(vc):
                     result.append(child_prefix + detail_prefix + detail)
+            vc_dir = self.sby_file.parent / f"{self.sby_file.stem}_{vc.name}"
+            vc_dir = Path(os.path.relpath(vc_dir, self.cfg.invocation_dir))
+            result.append(child_prefix + detail_prefix + f"sby logs: {vc_dir}")
             for r in vc.vc_results:
                 if r["status"] == "FAIL":
                     result.append(
@@ -264,8 +265,6 @@ class SbyScript:
                     )
                     result.append(child_prefix + detail_prefix + f"trace: {r['trace']}")
             if vc.status == "ERROR":
-                vc_dir = self.sby_file.parent / f"{self.sby_file.stem}_{vc.name}"
-                vc_dir = Path(os.path.relpath(vc_dir, self.cfg.invocation_dir))
                 result.append(
                     child_prefix
                     + detail_prefix

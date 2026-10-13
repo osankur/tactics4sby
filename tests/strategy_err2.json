@@ -6,7 +6,6 @@
     "files": [
       "module_dep3.sv"
     ],
-    "top": "main",
     "goal": {
       "module": "main",
       "tactic": {

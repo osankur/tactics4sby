@@ -187,7 +187,6 @@ class ProofStrategy:
 
     header: tuple[str, ...]
     files: tuple[str, ...]
-    top: str
     goal: Goal
     subgoals: tuple[Goal, ...]
     source: Path | None = field(default=None, compare=False)
@@ -211,8 +210,9 @@ _GOAL_OPTIONAL = (
     "options",
     "engines",
 )
-_PROOF_STRATEGY_REQUIRED = ("header", "files", "top", "goal", "subgoals")
+_PROOF_STRATEGY_REQUIRED = ("header", "files", "goal")
 _PROOF_STRATEGY_OPTIONAL = (
+    "subgoals",
     "early-assume",
     "early-assert",
     "options",
@@ -528,7 +528,6 @@ class _Parser:
         )
         header = self._string_list(ps["header"], "proof_strategy.header")
         files = self._string_list(ps["files"], "proof_strategy.files")
-        top = self._string(ps["top"], "proof_strategy.top")
         early_assume = (
             self._bool(ps["early-assume"], "proof_strategy.early-assume")
             if "early-assume" in ps
@@ -544,19 +543,21 @@ class _Parser:
                 "proof_strategy", "'early-assume' requires 'early-assert' to be true"
             )
         goal = self.goal(ps["goal"], "proof_strategy.goal")
-        if not isinstance(ps["subgoals"], list):
-            self._err(
-                "proof_strategy.subgoals",
-                f"expected an array of goals, got {type(ps['subgoals'])}",
+        if "subgoals" in ps:
+            if not isinstance(ps["subgoals"], list):
+                self._err(
+                    "proof_strategy.subgoals",
+                    f"expected an array of goals, got {type(ps['subgoals'])}",
+                )
+            subgoals = tuple(
+                self.goal(item, f"proof_strategy.subgoals[{index}]")
+                for index, item in enumerate(ps["subgoals"])
             )
-        subgoals = tuple(
-            self.goal(item, f"proof_strategy.subgoals[{index}]")
-            for index, item in enumerate(ps["subgoals"])
-        )
+        else:
+            subgoals = ()
         return ProofStrategy(
             header=header,
             files=files,
-            top=top,
             goal=goal,
             subgoals=subgoals,
             early_assume=early_assume,
@@ -665,10 +666,12 @@ def _describe_goal(
     suffix = f" [{', '.join(flags)}]" if flags else ""
     label = f"{goal.name!r} " if goal.name else ""
     lines.append(f"{pad}- {label}module={goal.module}{suffix}")
+    if goal.engines:
+        lines.append(f"{pad}  engines: {goal.engines}")
+    if goal.options:
+        lines.append(f"{pad}  engines: {goal.options}")
     if goal.tactic is not None:
         _describe_tactic(goal.tactic, lines, indent + 1)
-    else:
-        lines.append(f"{pad}  tactic: none (prove directly)")
 
 
 def summarize(strategy: ProofStrategy) -> str:
@@ -676,7 +679,6 @@ def summarize(strategy: ProofStrategy) -> str:
     lines: list[str] = []
     lines.append(f"header ({len(strategy.header)} command(s)):")
     lines.extend(f"  {command}" for command in strategy.header)
-    lines.append(f"top: {strategy.top}")
     lines.append("goal:")
     _describe_goal(strategy.goal, strategy, lines, 1)
     lines.append(f"subgoals ({len(strategy.subgoals)}):")

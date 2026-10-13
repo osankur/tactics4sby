@@ -79,8 +79,8 @@ def strip_backslash(id) -> str:
         return str(id)
 
 
-def ensure_backslash(id: str, silent_fail: bool = False) -> str:
-    if id[0] != "\\":
+def ensure_backslash(id: str) -> str:
+    if id[0] != "\\" and id[0] != "$":
         return f"\\{id}"
     return id
 
@@ -94,7 +94,7 @@ def make_model(
     modeldir = Path(cfg.tmpdir) / "model"
     modeldir.mkdir(exist_ok=True)
 
-    with open(modeldir / "design_prep.ys", "w") as f:
+    with open(modeldir / f"{strip_backslash(top)}.ys", "w") as f:
         for cmd in read_commands:
             print(cmd, file=f)
         print("hierarchy -smtcheck -auto-top", file=f)
@@ -110,19 +110,19 @@ def make_model(
         print("chformal -live -fair -cover -remove", file=f)
         print("setundef -undriven -anyseq", file=f)
         print("rename -witness", file=f)
-        print(f"write_rtlil {modeldir}/{top}.il", file=f)
+        print(f"write_rtlil {modeldir}/{strip_backslash(top)}.il", file=f)
         if cfg.dump_dot_circuits:
-            print(f"select -module \\{top}", file=f)
-            print(f"show -format svg -prefix {top} -stretch", file=f)
+            print(f"select -module {top}", file=f)
+            print(f"show -format svg -prefix {strip_backslash(top)} -stretch", file=f)
 
     subprocess.run(
-        ["yosys", "-s", str(modeldir / "design_prep.ys")],
+        ["yosys", "-s", str(modeldir / f"{strip_backslash(top)}.ys")],
         stdout=None if cfg.verbose_yosys else subprocess.DEVNULL,
         stderr=None if cfg.verbose_yosys else subprocess.DEVNULL,
         check=True,
     )
     design = ys.Design()
-    ys.run_pass(f"read_rtlil {modeldir}/{top}.il", design)
+    ys.run_pass(f"read_rtlil {modeldir}/{strip_backslash(top)}.il", design)
     return design
 
 

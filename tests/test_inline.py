@@ -65,7 +65,6 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "top": "main",
                 "goal": {
                     "module": "main",
                     "tactic": {"name": "split", "split_wire": "y1"},
@@ -85,7 +84,6 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "top": "main",
                 "goal": {
                     "module": "main",
                     "tactic": {"name": "split", "split_wire": "y3"},
@@ -105,7 +103,6 @@ def test_inline_strategy_parses(make_design, monkeypatch):
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "top": "main",
                 "goal": {
                     "module": "main",
                     "tactic": {"name": "split", "split_wire": "case1"},
@@ -155,7 +152,6 @@ _vc_main_split1: smtbmc
             "proof_strategy": {
                 "header": ["read_verilog -sv design.sv"],
                 "files": ["design.sv"],
-                "top": "main",
                 "goal": {
                     "module": "main",
                     "tactic": {

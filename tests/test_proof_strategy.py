@@ -37,7 +37,6 @@ def strategy(goals: list[dict], proof_strategy_fields: dict | None = None) -> st
             "proof_strategy": {
                 "header": HEADER,
                 "files": FILES,
-                "top": "main",
                 "goal": main,
                 "subgoals": rest,
                 **fields,
@@ -104,37 +103,9 @@ def test_empty_subgoals_list_is_allowed():
     assert result == ProofStrategy(
         header=tuple(HEADER),
         files=tuple(FILES),
-        top="main",
         goal=Goal(module="main"),
         subgoals=(),
     )
-
-
-def test_top_is_parsed():
-    result = parse_string(strategy([{"module": "main"}], {"top": "dut"}))
-    assert result.top == "dut"
-
-
-def test_top_is_required():
-    document = json.dumps(
-        {
-            "proof_strategy": {
-                "header": HEADER,
-                "files": FILES,
-                "goal": {"module": "main"},
-                "subgoals": [],
-            }
-        }
-    )
-    with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'top'"):
-        parse_string(document)
-
-
-def test_top_must_be_a_non_empty_string():
-    with pytest.raises(ProofStrategyError, match="proof_strategy.top"):
-        parse_string(strategy([{"module": "main"}], {"top": 42}))
-    with pytest.raises(ProofStrategyError, match="must not be empty"):
-        parse_string(strategy([{"module": "main"}], {"top": "  "}))
 
 
 def test_goal_is_required():
@@ -143,29 +114,11 @@ def test_goal_is_required():
             "proof_strategy": {
                 "header": HEADER,
                 "files": FILES,
-                "top": "main",
                 "subgoals": [],
             }
         }
     )
     with pytest.raises(ProofStrategyError, match="missing required key\\(s\\): 'goal'"):
-        parse_string(document)
-
-
-def test_subgoals_is_required():
-    document = json.dumps(
-        {
-            "proof_strategy": {
-                "header": HEADER,
-                "files": FILES,
-                "top": "main",
-                "goal": {"module": "main"},
-            }
-        }
-    )
-    with pytest.raises(
-        ProofStrategyError, match="missing required key\\(s\\): 'subgoals'"
-    ):
         parse_string(document)
 
 
@@ -857,7 +810,6 @@ def test_files_is_required():
         {
             "proof_strategy": {
                 "header": HEADER,
-                "top": "main",
                 "goal": {"module": "main"},
                 "subgoals": [],
             }
@@ -875,7 +827,6 @@ def test_files_must_be_an_array_of_strings():
             "proof_strategy": {
                 "header": HEADER,
                 "files": "a.sv",
-                "top": "main",
                 "goal": {"module": "main"},
                 "subgoals": [],
             }
@@ -891,7 +842,6 @@ def test_files_entries_must_be_strings():
             "proof_strategy": {
                 "header": HEADER,
                 "files": [1],
-                "top": "main",
                 "goal": {"module": "main"},
                 "subgoals": [],
             }
@@ -907,7 +857,6 @@ def test_files_may_be_empty():
             "proof_strategy": {
                 "header": HEADER,
                 "files": [],
-                "top": "main",
                 "goal": {"module": "main"},
                 "subgoals": [],
             }
@@ -922,7 +871,6 @@ def test_files_is_parsed_in_order():
             "proof_strategy": {
                 "header": HEADER,
                 "files": ["b.sv", "a.sv"],
-                "top": "main",
                 "goal": {"module": "main"},
                 "subgoals": [],
             }
@@ -939,17 +887,15 @@ def test_files_is_parsed_in_order():
 @pytest.mark.parametrize(
     "document",
     [
-        '{"proof_strategy": {"header": [] "files": [], "top": "main", '
-        '"goal": {}, "subgoals": []}}',
+        '{"proof_strategy": {"header": [] "files": [], "goal": {}, "subgoals": []}}',
         "",
         "null",
         "[]",
         # old root key
-        '{"context": {"header": [], "files": [], "top": "main", '
-        '"goal": {}, "subgoals": []}}',
+        '{"context": {"header": [], "files": [], "goal": {}, "subgoals": []}}',
         # old `goals` key instead of `goal`/`subgoals`
-        '{"proof_strategy": {"header": [], "files": [], "top": "main", "goals": []}}',
-        '{"proof_strategy": {"header": [], "files": [], "top": "main", '
+        '{"proof_strategy": {"header": [], "files": [], "goals": []}}',
+        '{"proof_strategy": {"header": [], "files": [], '
         '"goal": {}, "subgoals": []}, "extra": 1}',
     ],
 )

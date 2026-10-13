@@ -6,7 +6,6 @@
     "files": [
       "ag_w_asserts.sv"
     ],
-    "top": "main",
     "goal": {
       "module": "main",
       "tactic": {

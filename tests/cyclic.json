@@ -6,11 +6,17 @@
     "files": [
       "cyclic.sv"
     ],
-    "top": "main",
+    "early-assume": true,
+    "early-assert": true,
     "goal": {
       "module": "main",
       "tactic": {
-        "name": "assume_guarantee"
+        "name": "assume_guarantee",
+        "instances": [
+          {
+            "name": "s2"
+          }
+        ]
       }
     },
     "subgoals": [

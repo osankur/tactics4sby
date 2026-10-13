@@ -25,4 +25,4 @@ tests/*.sby
 tests/cyclic_*
 tests/nested_*
 tests/strategy*_*
-examples/
+examples/*/

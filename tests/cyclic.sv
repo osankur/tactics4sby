@@ -37,7 +37,7 @@ module subm (
 );
   initial y = 1;
   always_ff @(posedge clk) begin
-    y = (x > 2) ? x : 5'd3;
+    y <= (x > 2) ? x : 5'd3;
     subm_assume1 : assume (x & 5'b00001);
     subm_assert1 : assert (y & 5'b00001);
   end

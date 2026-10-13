@@ -118,7 +118,6 @@ def test_cli_strategy0_ag_vc(workdir: Path):
     main_log = (workdir / "strategy0__vc_main_ag_top/model/design.log").read_text(
         encoding="utf-8"
     )
-    print(main_log)
     # The proof of the top module leaves top assume and asserts, and converts submodules asserts to assumes
     assert (
         """Remaining assumes for this VC:

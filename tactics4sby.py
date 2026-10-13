@@ -137,7 +137,9 @@ def main(argv: list[str] | None = None) -> int:
             sby.dump(f)
         logger.info(f"Generated proof strategy into {sby_file}")
         if args.run_sby:
+            logger.info("Running sby...")
             sby.run(args.run_task)
+        logger.info("Printing verification conditions and statuses")
         print(sby)
     except Exception as exc:
         if args.verbosity > 1:

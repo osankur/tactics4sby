@@ -64,7 +64,7 @@ class SbyGenerator:
         if module_name in self._generated_module_goals:
             return
         # Clean the instantiated module names so that task names can be parsed by sby
-        vc_name = module_name.replace("$", "_").replace("'", "_")
+        vc_name = module_name.replace("$", "_").replace("'", "_").replace("\\", "_")
         self._generated_module_goals.add(module_name)
         for subgoal in self.strategy.subgoals:
             pat = rf"\$paramod{module_name}\\"
@@ -79,7 +79,15 @@ class SbyGenerator:
                     )
                 )
                 return
-        self._goal_list.put(parser.Goal(module=module_name, name=vc_name))
+        self._goal_list.put(
+            parser.Goal(
+                module=module_name,
+                name=vc_name,
+                tactic=subgoal.tactic,
+                options=subgoal.options,
+                engines=subgoal.engines,
+            )
+        )
 
     def process_tactic(
         self,
@@ -95,6 +103,14 @@ class SbyGenerator:
         if tactic is None and pre_script == []:
             return None
         if isinstance(tactic, parser.NoneTactic) or tactic is None and pre_script:
+            if self.cfg.dump_dot_circuits:
+                pre_script.extend(
+                    [
+                        f"select -module {strip_backslash(parent_goal.module)}",
+                        f"show -stretch -prefix {strip_backslash(parent_goal.module)} -format svg -colorattr _ag_vc_flattened ",
+                        "select -clear",
+                    ]
+                )
             return VerificationCondition(
                 vc_path,
                 "",
@@ -268,6 +284,13 @@ class SbyGenerator:
                     "chformal -assert -assert2assume a:_ag_vc_flattened=1",
                 ]
             )
+            outputs = list(
+                f"{parent_goal.module}/{cell.name}.{output[0]}"
+                for cell in ordered_instances
+                if str(cell.name) in participating_submodule_instance_names
+                for output in cell_graph.cell_outputs(cell)
+            )
+            top_ag_script.append(f"cutpoint {' '.join(outputs)}")
             if participating_assert_names:
                 top_ag_script.extend(
                     [
@@ -290,14 +313,14 @@ class SbyGenerator:
                 else:
                     return f"{parent_goal.module}/{cell.name}.* {parent_goal.module}/$flatten{cell.name}.* %u"
 
-            if self.cfg.dump_dot_circuits:
-                top_ag_script.extend(
-                    [
-                        f"select -module {parent_goal.module}",
-                        f"show -stretch -prefix {parent_goal.module} -format svg",
-                        "select -clear",
-                    ]
-                )
+            # if self.cfg.dump_dot_circuits:
+            #     top_ag_script.extend(
+            #         [
+            #             f"select -module {strip_backslash(parent_goal.module)}",
+            #             f"show -stretch -prefix {strip_backslash(parent_goal.module)} -format svg -colorattr _ag_vc_flattened ",
+            #             "select -clear",
+            #         ]
+            #     )
             child_vc = self.process_tactic(
                 tactic.tactic,
                 self._get_task_or_group_name(f"{vc_path}_ag_top"),
@@ -344,7 +367,6 @@ class SbyGenerator:
                             f"chformal -assert -assert2assume {_subcell_names_of_cell(prev_cell)}",
                         ]
                     )
-                # prove current cell's assumptions
                 inst_ag_script.extend(
                     [
                         "# Remove current goal's assert, and prove its assume",
@@ -365,14 +387,14 @@ class SbyGenerator:
                         "select r:FLAVOR=assert -list",
                     ]
                 )
-                if self.cfg.dump_dot_circuits:
-                    inst_ag_script.extend(
-                        [
-                            f"select -module {parent_goal.module}",
-                            f"show -stretch -prefix {inst_ag_task} -format svg",
-                            "select -clear",
-                        ]
-                    )
+                # if self.cfg.dump_dot_circuits:
+                #     inst_ag_script.extend(
+                #         [
+                #             f"select -module {parent_goal.module}",
+                #             f"show -stretch -prefix {inst_ag_task} -format svg",
+                #             "select -clear",
+                #         ]
+                #     )
                 subvc = self.process_tactic(
                     inst.tactic if inst else None,
                     inst_ag_task,
@@ -383,6 +405,7 @@ class SbyGenerator:
                 assert subvc
                 vcs.append(subvc)
                 previous_cells.append(cell)
+            # print(f"Adding ag with engines {tactic.engines}")
             return VerificationCondition(
                 vc_path,
                 f"{tactic.__class__.__name__}",
@@ -484,6 +507,7 @@ class SbyGenerator:
         goal_script.extend(
             [
                 f"hierarchy -top {self.strategy.goal.module}",
+                f"hierarchy -top {goal.module}",
                 "proc",
                 "chformal -remove -cover -live",
             ]
@@ -496,7 +520,11 @@ class SbyGenerator:
         if goal.name:
             vc_path = self._get_task_or_group_name(goal.name)
         else:
-            vc_path = self._get_task_or_group_name(goal.module)
+            vc_path = self._get_task_or_group_name(strip_backslash(goal.module))
         vc = self.process_tactic(goal.tactic, vc_path, goal_script, cg, goal)
         assert vc
+        if not vc.engines:
+            vc.engines = list(goal.engines)
+        if not vc.options:
+            vc.options = list(goal.options)
         self.vcs.append(vc)
