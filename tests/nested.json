@@ -12,20 +12,26 @@
         "mode bmc"
       ],
       "tactic": {
-        "name": "cutpoint",
-        "selection": "ycase",
+        "name": "abstract",
+        "commands": [
+          "cutpoint main/ycase"
+        ],
         "tactic": {
           "name": "assume_guarantee",
           "tactic": {
-            "name": "cutpoint",
-            "selection": "w1"
+            "name": "abstract",
+            "commands": [
+              "cutpoint main/w1"
+            ]
           },
           "instances": [
             {
               "name": "s1",
               "tactic": {
-                "name": "cutpoint",
-                "selection": "w2",
+                "name": "abstract",
+                "commands": [
+                  "cutpoint main/w2"
+                ],
                 "options": [
                   "mode prove"
                 ]

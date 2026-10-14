@@ -7,7 +7,7 @@ import pytest
 
 from parser import (
     AssumeGuaranteeTactic,
-    CutpointTactic,
+    AbstractTactic,
     InductiveAssumeGuaranteeTactic,
     Instance,
     Goal,
@@ -64,9 +64,11 @@ def inst(name: object, **fields: object) -> dict:
     return {"name": name, **fields}
 
 
-def cutpoint(selection: object = "w", **fields: object) -> dict:
-    """A ``cutpoint`` tactic object."""
-    return {"name": "cutpoint", "selection": selection, **fields}
+def abstract(commands: object = "abstract -value w", **fields: object) -> dict:
+    """A ``abstract`` tactic object."""
+    if isinstance(commands, str):
+        commands = [commands]
+    return {"name": "abstract", "commands": commands, **fields}
 
 
 def split(expression: str = "x", **cases: object) -> dict:
@@ -300,7 +302,9 @@ def test_instance_can_carry_a_tactic():
             [
                 {
                     "module": "main",
-                    "tactic": ag(instances=[inst("s1", tactic=cutpoint("w"))]),
+                    "tactic": ag(
+                        instances=[inst("s1", tactic=abstract("abstract -value w"))]
+                    ),
                 }
             ]
         )
@@ -311,7 +315,7 @@ def test_instance_can_carry_a_tactic():
     assert tactic.instances
     (instance,) = tactic.instances
     assert instance.name == "s1"
-    assert instance.tactic == CutpointTactic(selection="w")
+    assert instance.tactic == AbstractTactic(commands=("abstract -value w",))
 
 
 def test_instance_requires_a_name():
@@ -340,11 +344,11 @@ def test_instance_names_must_be_distinct():
 
 def test_assume_guarantee_main_vc_tactic():
     result = parse_string(
-        strategy([{"module": "t", "tactic": ag(tactic=cutpoint("w"))}])
+        strategy([{"module": "t", "tactic": ag(tactic=abstract("abstract -value w"))}])
     )
     tactic = result.goal.tactic
     assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.tactic == CutpointTactic(selection="w")
+    assert tactic.tactic == AbstractTactic(commands=("abstract -value w",))
 
 
 def test_assume_guarantee_is_recursive_through_instance_tactics():
@@ -653,37 +657,78 @@ def test_tactic_missing_name_is_rejected():
 
 
 # --------------------------------------------------------------------------- #
-# cutpoint tactic
+# abstract tactic
 # --------------------------------------------------------------------------- #
 
 
-def test_cutpoint_requires_selection():
+def test_abstract_requires_commands():
     with pytest.raises(
-        ProofStrategyError, match="missing required key\\(s\\): 'selection'"
+        ProofStrategyError, match="missing required key\\(s\\): 'commands'"
     ):
-        parse_string(strategy([{"module": "t", "tactic": {"name": "cutpoint"}}]))
+        parse_string(strategy([{"module": "t", "tactic": {"name": "abstract"}}]))
 
 
-def test_cutpoint_selection_must_be_a_string():
-    with pytest.raises(ProofStrategyError, match="expected a string"):
-        parse_string(strategy([{"module": "t", "tactic": cutpoint(selection=1)}]))
+def test_abstract_commands_must_be_a_list():
+    with pytest.raises(ProofStrategyError, match="expected an array of strings"):
+        parse_string(
+            strategy([{"module": "t", "tactic": {"name": "abstract", "commands": 1}}])
+        )
 
 
-def test_cutpoint_with_nested_tactic():
+def test_abstract_commands_must_not_be_empty():
+    with pytest.raises(ProofStrategyError, match="must not be an empty array"):
+        parse_string(strategy([{"module": "t", "tactic": abstract(commands=[])}]))
+
+
+def test_abstract_commands_must_start_with_abstract_or_cutpoint():
+    with pytest.raises(
+        ProofStrategyError, match="must start with 'abstract' or 'cutpoint'"
+    ):
+        parse_string(
+            strategy([{"module": "t", "tactic": abstract(commands=["select w"])}])
+        )
+
+
+def test_abstract_with_nested_tactic():
     result = parse_string(
-        strategy([{"module": "t", "tactic": cutpoint("w", tactic=split("x"))}])
+        strategy(
+            [
+                {
+                    "module": "t",
+                    "tactic": abstract("abstract -value w", tactic=split("x")),
+                }
+            ]
+        )
     )
     tactic = result.goal.tactic
-    assert isinstance(tactic, CutpointTactic)
-    assert tactic.selection == "w"
+    assert isinstance(tactic, AbstractTactic)
+    assert tactic.commands == ("abstract -value w",)
     assert isinstance(tactic.tactic, SplitTactic)
 
 
-def test_cutpoint_without_nested_tactic():
-    result = parse_string(strategy([{"module": "t", "tactic": cutpoint("w")}]))
+def test_abstract_without_nested_tactic():
+    result = parse_string(
+        strategy([{"module": "t", "tactic": abstract("abstract -value w")}])
+    )
     tactic = result.goal.tactic
-    assert isinstance(tactic, CutpointTactic)
+    assert isinstance(tactic, AbstractTactic)
     assert tactic.tactic is None
+
+
+def test_abstract_with_multiple_commands():
+    result = parse_string(
+        strategy(
+            [
+                {
+                    "module": "t",
+                    "tactic": abstract(commands=["abstract -value w1", "cutpoint w2"]),
+                }
+            ]
+        )
+    )
+    tactic = result.goal.tactic
+    assert isinstance(tactic, AbstractTactic)
+    assert tactic.commands == ("abstract -value w1", "cutpoint w2")
 
 
 # --------------------------------------------------------------------------- #
@@ -710,7 +755,7 @@ def test_inductive_assume_guarantee_has_the_same_fields():
                     "tactic": iag(
                         auto=False,
                         instances=[inst("s1")],
-                        tactic=cutpoint("w"),
+                        tactic=abstract("abstract -value w"),
                     ),
                 }
             ]
@@ -719,7 +764,7 @@ def test_inductive_assume_guarantee_has_the_same_fields():
     tactic = result.goal.tactic
     assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
     assert tactic.auto is False
-    assert tactic.tactic == CutpointTactic(selection="w")
+    assert tactic.tactic == AbstractTactic(commands=("abstract -value w",))
 
 
 # --------------------------------------------------------------------------- #
@@ -752,7 +797,9 @@ def test_options_and_engines_are_not_inherited_by_tactic():
                     "module": "t",
                     "options": ["mode bmc"],
                     "engines": ["abc"],
-                    "tactic": ag(instances=[inst("s1", tactic=cutpoint("w"))]),
+                    "tactic": ag(
+                        instances=[inst("s1", tactic=abstract("abstract -value w"))]
+                    ),
                 }
             ]
         )
@@ -764,7 +811,7 @@ def test_options_and_engines_are_not_inherited_by_tactic():
     assert tactic.engines == ()
     assert tactic.instances
     nested = tactic.instances[0].tactic
-    assert isinstance(nested, CutpointTactic)
+    assert isinstance(nested, AbstractTactic)
     assert nested.options == ()
     assert nested.engines == ()
 

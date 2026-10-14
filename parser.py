@@ -12,7 +12,7 @@ __all__ = [
     "Tactic",
     "AssumeGuaranteeTactic",
     "InductiveAssumeGuaranteeTactic",
-    "CutpointTactic",
+    "AbstractTactic",
     "SplitTactic",
     "Instance",
     "Goal",
@@ -34,7 +34,7 @@ TACTIC_NAMES: tuple[str, ...] = (
     "none",
     "assume_guarantee",
     "inductive_assume_guarantee",
-    "cutpoint",
+    "abstract",
     "split",
 )
 
@@ -118,17 +118,19 @@ class InductiveAssumeGuaranteeTactic(AssumeGuaranteeTactic):
 
 
 @dataclass(frozen=True, kw_only=True)
-class CutpointTactic(Tactic):
-    """Apply ``cutpoint`` to a selection, implementing a user-defined abstraction.
+class AbstractTactic(Tactic):
+    """Apply ``abstract`` or ``cutpoint`` commands, implementing a user-defined
+    abstraction.
 
-    ``selection`` is a Yosys select expression referring to the module module's wires.
-    ``tactic``, when given, is applied after the cutpoint.
+    ``commands`` is a list of Yosys commands that must each start with
+    ``abstract`` or ``cutpoint``.  They are added to the generated sby script.
+    ``tactic``, when given, is applied after the commands.
     """
 
-    selection: str
+    commands: tuple[str, ...]
     tactic: Tactic | None = None
 
-    name: ClassVar[str] = "cutpoint"
+    name: ClassVar[str] = "abstract"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -233,7 +235,7 @@ _TACTIC_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("name",),
         ("auto", "instances", "inline", "tactic") + _TACTIC_COMMON_OPTIONAL,
     ),
-    "cutpoint": (("name", "selection"), ("tactic",) + _TACTIC_COMMON_OPTIONAL),
+    "abstract": (("name", "commands"), ("tactic",) + _TACTIC_COMMON_OPTIONAL),
     "split": (
         ("name", "split_wire"),
         ("case_false", "case_true") + _TACTIC_COMMON_OPTIONAL,
@@ -378,11 +380,21 @@ class _Parser:
         if name in ("assume_guarantee", "inductive_assume_guarantee"):
             return self._assume_guarantee(obj, path, name=name)
 
-        if name == "cutpoint":
-            selection = self._string(obj["selection"], f"{path}.selection")
+        if name == "abstract":
+            commands = self._string_list(
+                obj["commands"], f"{path}.commands", allow_empty=False
+            )
+            for index, command in enumerate(commands):
+                command_path = f"{path}.commands[{index}]"
+                if not command.startswith(("abstract", "cutpoint")):
+                    self._err(
+                        command_path,
+                        f"command must start with 'abstract' or 'cutpoint', "
+                        f"got {command!r}",
+                    )
             tactic = self._optional_tactic(obj, "tactic", path)
-            return CutpointTactic(
-                selection=selection,
+            return AbstractTactic(
+                commands=commands,
                 tactic=tactic,
                 options=options,
                 engines=engines,
@@ -631,8 +643,10 @@ def _describe_tactic(tactic: Tactic, lines: list[str], indent: int) -> None:
         if tactic.tactic is not None:
             lines.append(f"{pad}  main VC:")
             _describe_tactic(tactic.tactic, lines, indent + 2)
-    elif isinstance(tactic, CutpointTactic):
-        lines.append(f"{pad}tactic: cutpoint on {tactic.selection}")
+    elif isinstance(tactic, AbstractTactic):
+        lines.append(f"{pad}tactic: abstract ({len(tactic.commands)} command(s))")
+        for command in tactic.commands:
+            lines.append(f"{pad}  {command}")
         if tactic.tactic is not None:
             _describe_tactic(tactic.tactic, lines, indent + 1)
     elif isinstance(tactic, SplitTactic):

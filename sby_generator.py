@@ -398,21 +398,12 @@ class SbyGenerator:
                 list(tactic.engines),
                 pre_script,
             )
-        elif isinstance(tactic, parser.CutpointTactic):
+        elif isinstance(tactic, parser.AbstractTactic):
             # from local wire names to global wire names
-            selection = " ".join(
-                map(
-                    lambda name: f"{parent_goal.module}/{name}",
-                    tactic.selection.split(" "),
-                )
-            )
             child_tactic = self.process_tactic(
                 tactic.tactic,
                 f"{vc_path}_cp",
-                [
-                    f"select {selection} -assert-any",
-                    f"cutpoint {selection}",
-                ],
+                list(tactic.commands),
                 cg,
                 parent_goal,
             )

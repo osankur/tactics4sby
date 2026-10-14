@@ -22,7 +22,7 @@ The contract of a goal's `module` module is *all* of its assertions and assumpti
 This always refers to properties of the `module`, never to those of its submodules. Goals are proven independently of one another: no assumption or intermediate result is shared between them.
 
 A tactic object contains:
-- A mandatory subfield `name`. We have the followings tactics allowed: `assume_guarantee`, `cutpoint`, `split`.
+- A mandatory subfield `name`. We have the followings tactics allowed: `assume_guarantee`, `abstract`, `split`.
 - Optional `options` and `engines` lists. These values, when given, override parents' options and engines values.
 
 ## Tactic: `assume_guarantee`
@@ -47,8 +47,9 @@ The object must contain a `split_wire` field containing a width-1 wire, plus opt
 
 The `split_wire` is evaluated in the module owning the verification condition being split: in the goal's `module` at the top level.
 
-## Tactic: `cutpoint`
-Applies cutpoint to a given wire. The mandatory `wire` field is a Yosys select expression referring to the top module's wires.
+## Tactic: `abstract`
+Applies `abstract` or `cutpoint` commands to given wires or dffs.
+The mandatory field `commands` is a non-empty list of strings; each command must start with `"abstract"` or `"cutpoint"` and will be added to the generated sby script.
 This implements user-defined abstractions.
 
 ## Examples
