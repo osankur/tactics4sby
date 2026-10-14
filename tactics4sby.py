@@ -128,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         strategy = parser.parse_file(strategy_path)
         if args.summarize:
             print(parser.summarize(strategy))
+            return 0
         sby_file = cfg.basedir / (strategy_path.stem + ".sby")
         generator = sby_generator.SbyGenerator(strategy, cfg)
         sby = generator.get_sby_script(sby_file)

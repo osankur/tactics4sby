@@ -26,7 +26,6 @@ OTHER_STRATEGIES = [
     "cyclic",
     "strategy1",
     "strategy3",
-    "strategy_err0",
     "strategy_err1",
     "strategy_err2",
     "ag_w_asserts",

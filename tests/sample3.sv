@@ -7,7 +7,7 @@ module main (
   input logic [4:0] x;
   output logic [4:0] y;
   logic [4:0] y1, tmpy;
-
+  logic split_y = x[1];
   dummy_subm s2 (
       .clk(clk),
       .x  (x),
@@ -31,6 +31,7 @@ module subm (
     output logic [4:0] y
 );
   initial y = 1;
+  logic split_subm = x[1];
   always_comb begin
     y = (x > 2) ? x : 5'd3;
     subm_assume1 : assume (x & 5'b00001);

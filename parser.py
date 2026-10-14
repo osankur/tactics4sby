@@ -138,9 +138,6 @@ class SplitTactic(Tactic):
     ``case_false`` / ``case_true`` are the tactics applied to the branch where
     ``split_wire`` is false / true; ``None`` means that branch is proven
     directly.  The expression is evaluated in the module owning the VC.
-
-    ``tactic``, when given, is applied after the split (e.g. to the whole
-    verification condition once both cases have been discharged).
     """
 
     split_wire: str

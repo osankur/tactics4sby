@@ -67,7 +67,6 @@ class SbyResult:
 
 @dataclass
 class VerificationCondition:
-    # TODO Change this if a module starts with this pattern
     VC_PREFIX = "_vc_"
     name: str
     tactic: str
@@ -138,21 +137,27 @@ class SbyScript:
         def traverse(
             vc: VerificationCondition,
             parent_groups: list[str],
-            specified_options: bool,
-            specified_engines: bool,
+            inherited_options: list[str],
+            inherited_engines: list[str],
         ):
             """
             either there is a global options & engines, or each task must specify these
             """
-            add_group(vc.name, vc.options, section_options)
+            options = vc.options if vc.options else inherited_options
+            engines = vc.engines if vc.engines else inherited_engines
             add_group(vc.name, vc.script, section_script)
-            add_group(vc.name, vc.engines, section_engines)
             if vc.children == []:
+                add_group(
+                    vc.name,
+                    options if options else list(self.DEFAULT_OPTIONS),
+                    section_options,
+                )
+                add_group(
+                    vc.name,
+                    engines if engines else list(self.DEFAULT_ENGINES),
+                    section_engines,
+                )
                 section_tasks.append(f"{vc.name} {' '.join(parent_groups)}")
-                if vc.options == [] and not specified_options:
-                    add_group(vc.name, list(self.DEFAULT_OPTIONS), section_options)
-                if vc.engines == [] and not specified_engines:
-                    add_group(vc.name, list(self.DEFAULT_ENGINES), section_engines)
             else:
                 next_parent_groups = (
                     [vc.name] + parent_groups
@@ -160,15 +165,10 @@ class SbyScript:
                     else parent_groups
                 )
                 for subvc in vc.children:
-                    traverse(
-                        subvc,
-                        next_parent_groups,
-                        specified_options or vc.options != [],
-                        specified_engines or vc.engines != [],
-                    )
+                    traverse(subvc, next_parent_groups, options, engines)
 
         for vc in self.vcs:
-            traverse(vc, [], self.options != [], self.engines != [])
+            traverse(vc, [], self.options, self.engines)
 
         def print_section(name: str, content: list[str]):
             print(f"[{name}]", file=f)
@@ -249,10 +249,10 @@ class SbyScript:
             # Options/engines/script are shown on their own lines, aligned with
             # the node's junction column. A vertical bar is drawn when the node
             # has children so the subtree stays connected.
-            detail_prefix = "| " if n > 0 else "  "
+            detail_prefix = "│ " if n > 0 else "  "
             if show_details:
                 for detail in vc_details(vc):
-                    result.append(child_prefix + detail_prefix + detail)
+                    result.append(child_prefix + detail_prefix + "  " + detail)
             vc_dir = self.sby_file.parent / f"{self.sby_file.stem}_{vc.name}"
             vc_dir = Path(os.path.relpath(vc_dir, self.cfg.invocation_dir))
             result.append(child_prefix + detail_prefix + f"  sby logs: {vc_dir}")
@@ -296,14 +296,13 @@ class SbyScript:
     def __str__(self):
         return self.to_string()
 
-    def run(self, task_to_run: str | None):
-        """Run sby on ``sby_file`` and return the parsed status records.
-
-        The first run performs the actual proof.  The second run re-reads the
-        results with ``--statusfmt jsonl``, which prints one JSON object per line
-        (no nesting); each line is parsed into a dictionary.
-        """
-        _ = subprocess.run(
+    def run(self, task_to_run: str | None = None) -> int:
+        """Run sby on ``sby_file`` and store the parsed status records."""
+        if not self.sby_file.exists():
+            raise Exception(
+                f"Attempting to run sby on file {self.sby_file} that has not been written"
+            )
+        sby_exec = subprocess.run(
             ["sby", "-f", str(self.sby_file)]
             + ([] if task_to_run is None else [task_to_run]),
             stdout=None if self.cfg.verbose_sby else subprocess.DEVNULL,
@@ -349,3 +348,4 @@ class SbyScript:
             records.append(json.loads(line))
         self.result = SbyResult(status, records)
         self.annotate_with_results(self.result)
+        return sby_exec.returncode

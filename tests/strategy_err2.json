@@ -10,9 +10,17 @@
       "module": "main",
       "tactic": {
         "name": "assume_guarantee",
+        "tactic": {
+          "name": "split",
+          "split_wire": "split_y"
+        },
         "instances": [
           {
-            "name": "s1"
+            "name": "subm",
+            "tactic": {
+              "name": "split",
+              "split_wire": "split_y"
+            }
           }
         ]
       }
@@ -20,6 +28,9 @@
     "subgoals": [
       {
         "module": "dummy_subm"
+      },
+      {
+        "module": "subm"
       }
     ]
   }

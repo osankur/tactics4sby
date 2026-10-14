@@ -38,7 +38,11 @@ def make_design(tmp_path: Path):
         src = tmp_path / "design.sv"
         src.write_text(sv, encoding="utf-8")
         cfg = configuration.Configuration(
-            tmp_path, verbosity=2, tmpdir=tmp_path, verbose_yosys=True
+            tmp_path,
+            verbosity=2,
+            tmpdir=tmp_path,
+            verbose_yosys=False,
+            verbose_sby=False,
         )
         return cfg
 
@@ -115,7 +119,7 @@ chformal -remove -cover -live
 --
 _vc_main_split0:
 select -module main
-add -assume case1 -not
+add -assume -not case1
 select -clear
 --
 _vc_main_split1:
@@ -174,3 +178,54 @@ _vc_main_split1: smtbmc
     sby.dump(buf)
     output = buf.getvalue()
     assert options_and_engines in output
+
+
+def test_inline_ag_with_module_names(make_design, monkeypatch):
+    cfg = make_design(CHAIN_SV)
+    monkeypatch.chdir(cfg.basedir)
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {
+                    "module": "main",
+                    "tactic": {
+                        "name": "assume_guarantee",
+                        "instances": [{"name": "subm"}],
+                    },
+                },
+                "subgoals": [{"module": "main"}],
+            }
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby_script = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    vc_tree_string = str(sby_script)
+    assert "__vc_main_ag_s1" in vc_tree_string
+    assert "__vc_main_ag_s2" in vc_tree_string
+
+
+def test_split(make_design, monkeypatch):
+    cfg = make_design(CHAIN_SV)
+    monkeypatch.chdir(cfg.basedir)
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {
+                    "module": "main",
+                    "tactic": {"name": "split", "split_wire": "case1"},
+                },
+                "subgoals": [{"module": "dummy_subm"}],
+            }
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    with open(sby_file, "w") as f:
+        sby.dump(f)
+    assert sby.run(None) == 0

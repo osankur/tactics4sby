@@ -94,7 +94,7 @@ class SbyGenerator:
         parent_goal: parser.Goal,
     ) -> VerificationCondition | None:
         """
-        Explore the tactic tree recursively returning a list of VerificationCondition objects which are premises of this tactic.
+        Return a VerificationCondition representing the given tactic, with children verification conditions built recursively.
         """
         if tactic is None and pre_script == []:
             return None
@@ -146,7 +146,7 @@ class SbyGenerator:
                 else tuple(
                     parser.Instance(
                         name=name,
-                        tactic=tactic.tactic,
+                        tactic=None,
                         json_path=f"{tactic.json_path}.{name}",
                     )
                     for name in all_submodule_names
@@ -160,11 +160,13 @@ class SbyGenerator:
 
             participating_assert_names = []
             participating_submodule_instance_names = []
+            participating_name_to_instance = dict()
             for inst in instances:
                 if inst.name in user_defined_cell_names:
                     # the cell name appears in inline
                     if inst.name in inline_names:
                         continue
+                    participating_name_to_instance[str(inst.name)] = inst
                     inst_cell = cg[
                         ensure_backslash(parent_goal.module)
                     ].top_module.cell(inst.name)
@@ -186,6 +188,7 @@ class SbyGenerator:
                             # the cell name appears in inline
                             if cell_name in inline_names:
                                 continue
+                            participating_name_to_instance[cell_name] = inst
                             participating_submodule_instance_names.append(cell_name)
                             self._schedule_goal(str(cell.type))
                 else:
@@ -309,14 +312,6 @@ class SbyGenerator:
                 else:
                     return f"{parent_goal.module}/{cell.name}.* {parent_goal.module}/$flatten{cell.name}.* %u"
 
-            # if self.cfg.dump_dot_circuits:
-            #     top_ag_script.extend(
-            #         [
-            #             f"select -module {strip_backslash(parent_goal.module)}",
-            #             f"show -stretch -prefix {strip_backslash(parent_goal.module)} -format svg -colorattr _ag_vc_flattened ",
-            #             "select -clear",
-            #         ]
-            #     )
             child_vc = self.process_tactic(
                 tactic.tactic,
                 self._get_task_or_group_name(f"{vc_path}_ag_top"),
@@ -383,16 +378,10 @@ class SbyGenerator:
                         "select r:FLAVOR=assert -list",
                     ]
                 )
-                # if self.cfg.dump_dot_circuits:
-                #     inst_ag_script.extend(
-                #         [
-                #             f"select -module {parent_goal.module}",
-                #             f"show -stretch -prefix {inst_ag_task} -format svg",
-                #             "select -clear",
-                #         ]
-                #     )
                 subvc = self.process_tactic(
-                    inst.tactic if inst else None,
+                    participating_name_to_instance[cell_name].tactic
+                    if cell_name in participating_name_to_instance
+                    else None,
                     inst_ag_task,
                     inst_ag_script,
                     cg,
@@ -401,7 +390,6 @@ class SbyGenerator:
                 assert subvc
                 vcs.append(subvc)
                 previous_cells.append(cell)
-            # print(f"Adding ag with engines {tactic.engines}")
             return VerificationCondition(
                 vc_path,
                 f"{tactic.__class__.__name__}",
@@ -458,7 +446,7 @@ class SbyGenerator:
                 f"{vc_path}_split0",
                 [
                     f"select -module {parent_goal.module}",
-                    f"add -assume {tactic.split_wire} -not",
+                    f"add -assume -not {tactic.split_wire}",
                     "select -clear",
                 ],
                 cg,

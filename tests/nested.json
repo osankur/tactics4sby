@@ -8,6 +8,9 @@
     ],
     "goal": {
       "module": "main",
+      "options": [
+        "mode bmc"
+      ],
       "tactic": {
         "name": "cutpoint",
         "selection": "ycase",
@@ -22,18 +25,15 @@
               "name": "s1",
               "tactic": {
                 "name": "cutpoint",
-                "selection": "w2"
+                "selection": "w2",
+                "options": [
+                  "mode prove"
+                ]
               }
             },
             {
               "name": "s2"
             }
-          ],
-          "engines": [
-            "smtbmc"
-          ],
-          "options": [
-            "mode bmc"
           ]
         }
       }
