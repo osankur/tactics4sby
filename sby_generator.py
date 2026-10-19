@@ -286,13 +286,13 @@ class SbyGenerator:
                     "chformal -assert -assert2assume a:_ag_vc_flattened=1",
                 ]
             )
-            outputs = list(
+            instance_outputs = list(
                 f"{parent_goal.module}/{cell.name}.{output[0]}"
                 for cell in ordered_instances
                 if str(cell.name) in participating_submodule_instance_names
                 for output in cell_graph.cell_outputs(cell)
             )
-            top_ag_script.append(f"cutpoint {' '.join(outputs)}")
+            top_ag_script.append(f"cutpoint {' '.join(instance_outputs)}")
             if participating_assert_names:
                 top_ag_script.extend(
                     [
@@ -380,13 +380,18 @@ class SbyGenerator:
                         inst_ag_script.append("clk2fflogic")
                     else:
                         inst_ag_script.append("async2sync")
+                    if self.strategy.assume_early:
+                        assume_delay = 2
+                    else:
+                        assume_delay = 1
                     inst_ag_script.extend(
                         [
                             f"# Switch assume and asserts in goal cell {cell.name}",
                             f"chformal -assume -assert -assume2assert -assert2assume {_subcell_names_of_cell(cell)} # vc goal",
-                            f"log Delaying assumptions of cell {cell.name}",
+                            # f"chformal -assume -remove {_subcell_names_of_cell(cell)}",
+                            f"log Delaying assumptions of cell {cell.name} by {assume_delay} (assume_early: {self.strategy.assume_early})",
                             f"select t:$assume {_subcell_names_of_cell(cell)} %i -list",
-                            f"chformal -assume -delay 1 {_subcell_names_of_cell(cell)}",
+                            f"chformal -assume -delay {assume_delay} {_subcell_names_of_cell(cell)}",
                         ]
                     )
                     # Remove all other instances' assumptions, convert all instances' assertions to assumes and delay them
@@ -402,12 +407,12 @@ class SbyGenerator:
                                 [
                                     f"# Assume assertions of cell {other_cell.name} with delay 1",
                                     f"chformal -assert -assert2assume {_subcell_names_of_cell(other_cell)}",
-                                    f"chformal -assume -delay 1 {_subcell_names_of_cell(other_cell)}",
-                                    f"log Delaying assumptions of cell {other_cell.name}",
+                                    f"chformal -assume -delay {assume_delay} {_subcell_names_of_cell(other_cell)}",
+                                    f"log Delaying assumptions of cell {other_cell.name} by {assume_delay} (assume_early: {self.strategy.assume_early})",
                                     f"select t:$assume {_subcell_names_of_cell(other_cell)} %i -list",
                                 ]
                             )
-
+                inst_ag_script.append(f"cutpoint {' '.join(instance_outputs)}")
                 inst_ag_script.extend(
                     [
                         "log Remaining assumes for this VC:",

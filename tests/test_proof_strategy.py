@@ -314,26 +314,79 @@ def test_assume_guarantee_main_vc_tactic():
     assert tactic.tactic == AbstractTactic(commands=("abstract -value w",))
 
 
-def test_assume_guarantee_is_recursive_through_instance_tactics():
-    result = parse_string(
-        strategy(
-            [
-                {
-                    "module": "main",
-                    "tactic": ag(
-                        instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
-                    ),
-                }
-            ]
+def test_nested_assume_guarantee_in_instance_tactic_is_rejected():
+    with pytest.raises(
+        ProofStrategyError,
+        match="cannot be nested inside another assume_guarantee",
+    ) as excinfo:
+        parse_string(
+            strategy(
+                [
+                    {
+                        "module": "main",
+                        "tactic": ag(
+                            instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
+                        ),
+                    }
+                ]
+            )
         )
+    assert "proof_strategy.goal.tactic.instances[0].tactic" in str(excinfo.value)
+
+
+def test_nested_assume_guarantee_in_main_vc_is_rejected():
+    with pytest.raises(ProofStrategyError, match="cannot be nested inside"):
+        parse_string(strategy([{"module": "t", "tactic": ag(tactic=ag())}]))
+
+
+def test_nested_assume_guarantee_under_split_case_is_rejected():
+    # the ban reaches through intermediate tactics, not just direct children
+    with pytest.raises(ProofStrategyError, match="cannot be nested inside") as excinfo:
+        parse_string(
+            strategy(
+                [
+                    {
+                        "module": "main",
+                        "tactic": ag(
+                            instances=[inst("s1", tactic=split("x", case_true=ag()))]
+                        ),
+                    }
+                ]
+            )
+        )
+    assert "proof_strategy.goal.tactic.instances[0].tactic.case_true" in str(
+        excinfo.value
     )
-    goal = result.goal
-    tactic = goal.tactic
-    assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.instances
-    nested = tactic.instances[0].tactic
-    assert isinstance(nested, AssumeGuaranteeTactic)
-    assert nested.instances == (Instance(name="s2"),)
+
+
+def test_inductive_assume_guarantee_cannot_nest_under_assume_guarantee():
+    with pytest.raises(ProofStrategyError, match="cannot be nested inside"):
+        parse_string(
+            strategy(
+                [
+                    {
+                        "module": "t",
+                        "tactic": ag(tactic=iag(instances=[inst("s1")])),
+                    }
+                ],
+                {"assume_early": False},
+            )
+        )
+
+
+def test_assume_guarantee_under_goal_level_split_is_allowed():
+    # a split outside any assume_guarantee may still contain one in its cases
+    result = parse_string(
+        strategy([{"module": "main", "tactic": split("x", case_true=ag())}])
+    )
+    tactic = result.goal.tactic
+    assert isinstance(tactic, SplitTactic)
+    assert isinstance(tactic.case_true, AssumeGuaranteeTactic)
+
+
+def test_inductive_assume_guarantee_requies_assume_early_false():
+    with pytest.raises(ProofStrategyError, match="'assume_early' to false"):
+        parse_string(strategy([{"module": "t", "tactic": iag()}]))
 
 
 # --------------------------------------------------------------------------- #
@@ -567,25 +620,16 @@ def test_abstract_commands_must_start_with_abstract_or_cutpoint():
 
 def test_abstract_with_nested_tactic():
     result = parse_string(
-        strategy(
-            [
-                {
-                    "module": "t",
-                    "tactic": abstract("abstract -value w", tactic=split("x")),
-                }
-            ]
-        )
+        strategy([{"module": "t", "tactic": abstract("abstract w", tactic=split("x"))}])
     )
     tactic = result.goal.tactic
     assert isinstance(tactic, AbstractTactic)
-    assert tactic.commands == ("abstract -value w",)
+    assert tactic.commands == ("abstract w",)
     assert isinstance(tactic.tactic, SplitTactic)
 
 
 def test_abstract_without_nested_tactic():
-    result = parse_string(
-        strategy([{"module": "t", "tactic": abstract("abstract -value w")}])
-    )
+    result = parse_string(strategy([{"module": "t", "tactic": abstract("abstract w")}]))
     tactic = result.goal.tactic
     assert isinstance(tactic, AbstractTactic)
     assert tactic.tactic is None
@@ -597,14 +641,14 @@ def test_abstract_with_multiple_commands():
             [
                 {
                     "module": "t",
-                    "tactic": abstract(commands=["abstract -value w1", "cutpoint w2"]),
+                    "tactic": abstract(commands=["abstract w1", "cutpoint w2"]),
                 }
             ]
         )
     )
     tactic = result.goal.tactic
     assert isinstance(tactic, AbstractTactic)
-    assert tactic.commands == ("abstract -value w1", "cutpoint w2")
+    assert tactic.commands == ("abstract w1", "cutpoint w2")
 
 
 # --------------------------------------------------------------------------- #
@@ -614,33 +658,20 @@ def test_abstract_with_multiple_commands():
 
 def test_inductive_assume_guarantee_is_parsed():
     result = parse_string(
-        strategy([{"module": "t", "tactic": iag(instances=[inst("s1")])}])
+        strategy(
+            [
+                {
+                    "module": "t",
+                    "tactic": iag(instances=[inst("s1")]),
+                }
+            ],
+            {"assume_early": False},
+        )
     )
     tactic = result.goal.tactic
     assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
     assert isinstance(tactic, AssumeGuaranteeTactic)
     assert tactic.instances == (Instance(name="s1"),)
-
-
-def test_inductive_assume_guarantee_has_the_same_fields():
-    result = parse_string(
-        strategy(
-            [
-                {
-                    "module": "t",
-                    "tactic": iag(
-                        auto=True,
-                        instances=[inst("s1")],
-                        tactic=abstract("abstract -value w"),
-                    ),
-                }
-            ]
-        )
-    )
-    tactic = result.goal.tactic
-    assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
-    assert tactic.auto
-    assert tactic.tactic == AbstractTactic(commands=("abstract -value w",))
 
 
 # --------------------------------------------------------------------------- #
@@ -673,9 +704,7 @@ def test_options_and_engines_are_not_inherited_by_tactic():
                     "module": "t",
                     "options": ["mode bmc"],
                     "engines": ["abc"],
-                    "tactic": ag(
-                        instances=[inst("s1", tactic=abstract("abstract -value w"))]
-                    ),
+                    "tactic": ag(instances=[inst("s1", tactic=abstract("abstract w"))]),
                 }
             ]
         )

@@ -17,6 +17,7 @@ __all__ = [
     "Instance",
     "Goal",
     "ProofStrategy",
+    "validate",
     "parse_file",
     "parse_string",
     "parse_dict",
@@ -95,6 +96,9 @@ class AssumeGuaranteeTactic(Tactic):
 
     ``tactic``, when given, is the tactic used to prove the main verification
     condition of this goal.
+
+    An assume-guarantee tactic may not appear anywhere inside the subtree of
+    another one; :func:`validate` rejects such strategies.
     """
 
     auto: bool = True
@@ -544,7 +548,6 @@ class _Parser:
             if "assume_early" in ps
             else True
         )
-        print(f"Parsing assume_early: {'assume_early' in ps}")
         goal = self.goal(ps["goal"], "proof_strategy.goal")
         if "subgoals" in ps:
             if not isinstance(ps["subgoals"], list):
@@ -572,6 +575,79 @@ class _Parser:
 
 
 # --------------------------------------------------------------------------- #
+# Well-formedness validation
+# --------------------------------------------------------------------------- #
+
+
+def _child_tactics(tactic: Tactic) -> list[tuple[str, Tactic]]:
+    """The nested tactics of ``tactic``, each paired with its JSON path.
+
+    Covers every edge of the tactic tree: the ``tactic`` field of
+    :class:`AssumeGuaranteeTactic` and :class:`AbstractTactic`, the
+    ``case_false``/``case_true`` fields of :class:`SplitTactic`, and the
+    ``tactic`` of each :class:`Instance` of an assume-guarantee tactic.
+    """
+    children: list[tuple[str, Tactic]] = []
+    if isinstance(tactic, AssumeGuaranteeTactic):
+        if tactic.tactic is not None:
+            children.append((f"{tactic.json_path}.tactic", tactic.tactic))
+        for index, instance in enumerate(tactic.instances or ()):
+            if instance.tactic is not None:
+                path = f"{tactic.json_path}.instances[{index}].tactic"
+                children.append((path, instance.tactic))
+    elif isinstance(tactic, AbstractTactic):
+        if tactic.tactic is not None:
+            children.append((f"{tactic.json_path}.tactic", tactic.tactic))
+    elif isinstance(tactic, SplitTactic):
+        for key in ("case_false", "case_true"):
+            case = getattr(tactic, key)
+            if case is not None:
+                children.append((f"{tactic.json_path}.{key}", case))
+    return children
+
+
+def _check_assume_guarantee(
+    tactic: Tactic, *, assume_early: bool, inside_ag: bool
+) -> None:
+    """Walk the subtree of ``tactic``, rejecting assume-guarantee nesting and
+    also rejecting inductive assume guarantee if assume_early is not off.
+
+    ``assume_early`` is the value of the toplevel field of the same name.
+    ``inside_ag`` records whether an ancestor of ``tactic`` is an
+    assume-guarantee tactic; a nested one is only an error in that case.
+    """
+    if assume_early and isinstance(tactic, InductiveAssumeGuaranteeTactic):
+        raise ProofStrategyError(
+            f"{tactic.json_path}: {tactic.__class__.__name__} can only be used by setting 'assume_early' to false"
+        )
+    if isinstance(tactic, AssumeGuaranteeTactic):
+        if inside_ag:
+            raise ProofStrategyError(
+                f"{tactic.json_path}: assume_guarantee tactics cannot be "
+                "nested inside another assume_guarantee tactic; prove the "
+                "offending goal separately with a subgoal"
+            )
+        inside_ag = True
+    for _path, child in _child_tactics(tactic):
+        _check_assume_guarantee(child, assume_early=assume_early, inside_ag=inside_ag)
+
+
+def validate(strategy: ProofStrategy) -> None:
+    """Check the well-formedness rules that span the tactic tree.
+
+    Raises :class:`ProofStrategyError` on the first violation.  Currently one
+    rule: no :class:`AssumeGuaranteeTactic` — including the inductive variant
+    — may appear anywhere inside the subtree of another one.  :func:`parse_dict`
+    calls this automatically; call it directly on a strategy built by hand.
+    """
+    for goal in (strategy.goal, *strategy.subgoals):
+        if goal.tactic is not None:
+            _check_assume_guarantee(
+                goal.tactic, assume_early=strategy.assume_early, inside_ag=False
+            )
+
+
+# --------------------------------------------------------------------------- #
 # Entry points
 # --------------------------------------------------------------------------- #
 
@@ -582,6 +658,7 @@ def parse_dict(data: Any, *, source: Path | None = None) -> ProofStrategy:
     ``source`` is recorded on the result and used only for messages.
     """
     strategy = _Parser().document(data, source)
+    validate(strategy)
     return strategy
 
 

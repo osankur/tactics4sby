@@ -10,8 +10,8 @@ At the top level, a `proof_strategy` object describes the design under verificat
 - `top`, a mandatory string naming the top module to be considered when synthesizing the design for any of the goals.
 - `goal`, a mandatory `goal` object describing the main goal to be proved.
 - `subgoals`, a mandatory list of `goal` objects describing additional goals that are required to prove the main goal. This list can be empty.
-- Optional `assume_early` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `assume_early` is true then `early-assert` must be true as well. These are strategy-wide flags.
-- Optional `options` and `engines` lists of strings. They default to `["mode prove"]` and `["smtbmc"]`.
+- Optional `assume_early` is a Boolean field (defaulting to `true`), which determines whether assume cells inside processes must read current values of signals or previous ones.
+- Optional `options` and `engines` lists of strings. These are global options and engines that will be active for all tasks.
 
 Each goal is given by the following fields:
 
@@ -23,7 +23,7 @@ This always refers to properties of the `module`, never to those of its submodul
 
 A tactic object contains:
 - A mandatory subfield `name`. We have the followings tactics allowed: `assume_guarantee`, `abstract`, `split`.
-- Optional `options` and `engines` lists. These values, when given, override parents' options and engines values.
+- Optional `options` and `engines` lists. These values, when given, override parent tactic's options and engines values. Note however that the global options and engines are never overridden.
 
 ## Tactic: `assume_guarantee`
 
@@ -40,6 +40,8 @@ The names in `instances` (respectively `inline`) must be pairwise distinct.
 The following verification conditions (VC) are generated:
 - Proving the present module by cutting participating submodule instances, and assuming their guarantees. Further tactics can be applied on this VC with the `tactic` field.
 - For each participating submodule instance, proving that the present module ensures the assumptions of the instance. Further tactics can be applied by adding a `tactic` field inside the `instances` list in the instance' object.
+
+An `assume_guarantee` (or `inductive_assume_guarantee`) tactic may not appear anywhere inside the subtree of another one, whether reached through the `tactic` field, an `instances` entry, or nested `split`/`abstract` tactics. To decompose a sub-goal assume-guarantee style, prove it separately as a `subgoal` instead.
 
 ## Tactic: `split`
 
