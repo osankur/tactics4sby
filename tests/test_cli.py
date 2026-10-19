@@ -243,3 +243,21 @@ def test_cli_strategies_w_errors(workdir: Path):
         "No module, module instance, or assert found with name  \\top_assumption1"
         in result.stderr
     )
+
+
+def test_cli_ag_with_asserts(workdir: Path):
+    result = run_main_program("-f", "ag_w_asserts.json", cwd=workdir)
+    assert result.returncode == 0
+    pattern = r"""Remaining assumes for this VC:
+main/s1.subm_assert1
+main/intermediate_assert2
+main/intermediate_assert1
+main/top_assumption1
+Remaining asserts for this VC:
+main/top_property1
+
+"""
+    design_log = (workdir / "ag_w_asserts__vc_main_ag_top/model/design.log").read_text(
+        encoding="utf-8"
+    )
+    assert pattern in design_log

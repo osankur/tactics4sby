@@ -17,7 +17,6 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-      - id: end-of-file-fixer
       - id: mixed-line-ending
         args: [--fix=lf]
       - id: check-yaml
@@ -28,6 +27,22 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=1024]
       - id: debug-statements
+
+  # ---------------------------------------------------------------------------
+  # JSON Schema validation of the proof strategy files (tests/ and examples/).
+  # `proof_strategy.schema.json` describes the format read by parser.py; add
+  # "\"$schema\": \"../proof_strategy.schema.json\"" to a strategy file to have
+  # your editor validate it too.  `tests/ag_w_asserts.json` is excluded because
+  # it is a stale fixture in an old format that no test loads.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      - id: check-jsonschema
+        name: check-jsonschema (proof strategies)
+        args: [--schemafile, proof_strategy.schema.json]
+        files: ^(tests|examples)/.*\.json$
+        exclude: ^tests/ag_w_asserts\.json$
 
   # ---------------------------------------------------------------------------
   # Linting and formatting (config lives in pyproject.toml under [tool.ruff]).

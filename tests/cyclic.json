@@ -1,4 +1,5 @@
 {
+  "$schema": "../proof_strategy.schema.json",
   "proof_strategy": {
     "header": [
       "read_verilog -sv cyclic.sv"

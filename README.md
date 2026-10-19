@@ -7,9 +7,8 @@ At the top level, a `proof_strategy` object describes the design under verificat
 
 - `header` describing a list of strings that are Yosys commands to be executed (such as reading Verilog files, activating define macros). The commands are executed in a single Yosys session, in order, before any goal is processed. Relative paths are resolved against the directory containing the strategy file.
 - `files`, a mandatory list of source files to be considered in the sby configuration scripts. It may be empty.
-- `top`, a mandatory string naming the top module to be considered when synthesizing the design for any of the goals.
 - `goal`, a mandatory `goal` object describing the main goal to be proved.
-- `subgoals`, a mandatory list of `goal` objects describing additional goals that are required to prove the main goal. This list can be empty.
+- `subgoals`, an optional list of `goal` objects describing additional goals that are required to prove the main goal. This list can be empty.
 - Optional `assume_early` is a Boolean field (defaulting to `true`), which determines whether assume cells inside processes must read current values of signals or previous ones.
 - Optional `options` and `engines` lists of strings. These are global options and engines that will be active for all tasks.
 
@@ -17,6 +16,8 @@ Each goal is given by the following fields:
 
 - `module` the name of the module to be analyzed. This module must exist after `header` has been executed.
 - An optional `tactic` field containing a tactic object. If absent, the goal is a leaf: it is proven directly, without decomposition.
+- Optional `name`, a label used in logs and error messages; it has no semantic effect.
+- Optional `options` and `engines` lists of strings, the sby defaults for this goal.
 
 The contract of a goal's `module` module is *all* of its assertions and assumptions. There is no way to select a subset but macros can be used when loading a file to select a subset.
 This always refers to properties of the `module`, never to those of its submodules. Goals are proven independently of one another: no assumption or intermediate result is shared between them.
@@ -60,6 +61,27 @@ This implements user-defined abstractions.
 - [tests/strategy2.json](tests/strategy2.json) is a complete assume-guarantee proof against the `tests/sample1.sv` fixture, with an explicit instance order.
 - [tests/strategy3.json](tests/strategy3.json) shows automatic ordering with an inlined instance and a split nested inside a submodule goal.
 - [tests/nested.json](tests/nested.json) illustrates nestings of various tactics.
+
+## Validating strategy files
+
+[`proof_strategy.schema.json`](proof_strategy.schema.json) is a JSON Schema
+describing the format above, as implemented by `parser.py`.
+
+To get validation and completion in your editor, point the file at the schema:
+
+```json
+{
+  "$schema": "../proof_strategy.schema.json",
+  "proof_strategy": { }
+}
+```
+
+To validate from the command line or from CI, one can use
+[`check-jsonschema`](https://github.com/python-jsonschema/check-jsonschema) as follows.
+
+```sh
+check-jsonschema --schemafile proof_strategy.schema.json tests/strategy1.json
+```
 
 ## Resulting Verification Conditions and Hierarchical Proof Structure
 Tactics yield a tree structure that proves a given objective. This structure is displayed by the tool at the end of the call.
@@ -143,15 +165,16 @@ pre-commit install --hook-type pre-push     # also install the pre-push hook
 
 The hooks are:
 
-| Hook                                                                                         | Stage        | What it does                                   |
-| -------------------------------------------------------------------------------------------- | ------------ | ---------------------------------------------- |
-| `trailing-whitespace`, `end-of-file-fixer`, `mixed-line-ending`                              | commit       | File hygiene.                                  |
-| `check-yaml`, `check-toml`, `check-json`                                                     | commit       | Validate config and fixture syntax.            |
-| `check-merge-conflict`, `check-case-conflict`, `check-added-large-files`, `debug-statements` | commit       | Common mistakes.                               |
-| `ruff-check` (`--fix`)                                                                       | commit       | Lint, using `[tool.ruff]` in `pyproject.toml`. |
-| `ruff-format`                                                                                | commit       | Formatting.                                    |
-| `ty`                                                                                         | commit       | Type checking (whole project).                 |
-| `pytest`                                                                                     | **pre-push** | Runs the test suite.                           |
+| Hook                                                                                         | Stage        | What it does                                                                       |
+| -------------------------------------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------- |
+| `trailing-whitespace`, `end-of-file-fixer`, `mixed-line-ending`                              | commit       | File hygiene.                                                                      |
+| `check-yaml`, `check-toml`, `check-json`                                                     | commit       | Validate config and fixture syntax.                                                |
+| `check-jsonschema`                                                                           | commit       | Validate `tests/` and `examples/` strategies against `proof_strategy.schema.json`. |
+| `check-merge-conflict`, `check-case-conflict`, `check-added-large-files`, `debug-statements` | commit       | Common mistakes.                                                                   |
+| `ruff-check` (`--fix`)                                                                       | commit       | Lint, using `[tool.ruff]` in `pyproject.toml`.                                     |
+| `ruff-format`                                                                                | commit       | Formatting.                                                                        |
+| `ty`                                                                                         | commit       | Type checking (whole project).                                                     |
+| `pytest`                                                                                     | **pre-push** | Runs the test suite.                                                               |
 
 Run everything manually with:
 

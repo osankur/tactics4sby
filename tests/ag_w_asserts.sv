@@ -24,10 +24,10 @@ module main (
       .y  (y)
   );
   always_comb begin
-    top_assumption1 : assume (x & 5'b00001);
-    intermediate_assert1 : assert (y1 & 5'b00001);
-    intermediate_assert2 : assert (y2 & 5'b00001);
-    top_property1 : assert (z >= 2);
+    top_assumption1 : assume (x[0] && x <= 5);
+    intermediate_assert1 : assert (y1 >= 7);
+    intermediate_assert2 : assert (y2 >= 9);
+    top_property1 : assert (z >= 11);
     z = (y < 13) ? y : y - 2;
   end
 endmodule
@@ -37,16 +37,10 @@ module subm (
     input logic [4:0] x,
     output logic [4:0] y
 );
-  logic [4:0] sx;
-  logic [4:0] z;
-  initial z <= 1;
+  initial y = 1;
   always_comb begin
-    sx = (x > 2) ? x : 5'd3;
-    y  = (sx > z) ? sx : z;
-  end
-  always_ff @(posedge clk) begin
-    z <= (z < y) ? y : z;
-    subm_assume1 : assume (x & 5'b00001);
-    subm_assert1 : assert (y >= 3 && (y & 5'b00001));
+    y = (x + 2 < 13) ? x + 2 : 5'd3;
+    subm_assume1 : assume (x[0]);
+    subm_assert1 : assert (y[0] && y <= x + 2);
   end
 endmodule

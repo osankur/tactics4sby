@@ -1,0 +1,28 @@
+{
+  "$schema": "../proof_strategy.schema.json",
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv cyclic_inductive.sv"
+    ],
+    "files": [
+      "cyclic_inductive.sv"
+    ],
+    "assume_early": false,
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "inductive_assume_guarantee",
+        "instances": [
+          {
+            "name": "subm"
+          }
+        ]
+      }
+    },
+    "subgoals": [
+      {
+        "module": "subm"
+      }
+    ]
+  }
+}

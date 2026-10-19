@@ -48,7 +48,9 @@ py-modules = [
 # uses a locally built pyosys (Yosys 0.40+50) that has no pip metadata, so
 # declaring it would make `uv sync` install PyPI's pyosys and shadow it.
 # Install it system-wide and use a `--system-site-packages` venv instead.
-dev = ["pytest", "pytest-cov"]
+# `jsonschema` is a dev dependency only: it validates the strategy fixtures
+# against `proof_strategy.schema.json` in `tests/test_schema.py`.
+dev = ["pytest", "pytest-cov", "jsonschema>=4.18"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

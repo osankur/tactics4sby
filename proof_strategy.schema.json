@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tactics4sby proof strategy",
+  "description": "JSON Schema for the proof strategy files read by parser.py. Reference it from a strategy file with \"$schema\": \"../proof_strategy.schema.json\" so that editors validate and complete it as you type. The schema covers everything the parser accepts; the cross-tree rules the parser also enforces (no assume_guarantee nested inside another one, and inductive_assume_guarantee only with \"assume_early\": false) cannot be expressed here and are reported by the parser instead.",
+  "type": "object",
+  "required": [
+    "proof_strategy"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional URI of this schema, used by editors to validate the file."
+    },
+    "proof_strategy": {
+      "$ref": "#/$defs/proofStrategy"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "A string that is not empty and does not consist solely of whitespace."
+    },
+    "nullableString": {
+      "description": "An optional string; an explicit null is accepted and treated as absent.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stringArray": {
+      "type": "array",
+      "description": "A list of non-empty strings. May be empty unless stated otherwise.",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "nullableStringArray": {
+      "description": "An optional list of strings; an explicit null is accepted and treated as absent.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/stringArray"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proofStrategy": {
+      "type": "object",
+      "description": "The design under verification together with the goals to prove on it.",
+      "required": [
+        "header",
+        "files",
+        "goal"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "description": "Yosys commands run once, in order, before any goal is processed. Relative paths are resolved against the directory containing the strategy file.",
+          "$ref": "#/$defs/stringArray"
+        },
+        "files": {
+          "description": "Source files considered by the generated sby configuration scripts. May be empty.",
+          "$ref": "#/$defs/stringArray"
+        },
+        "goal": {
+          "description": "The main goal to prove.",
+          "$ref": "#/$defs/goal"
+        },
+        "subgoals": {
+          "type": "array",
+          "description": "Additional goals that are proven independently of the main goal. May be omitted or empty.",
+          "items": {
+            "$ref": "#/$defs/goal"
+          }
+        },
+        "assume_early": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether assumptions inside processes read current signal values (true, the default) or previous ones (false). Must be false to use the inductive_assume_guarantee tactic."
+        },
+        "options": {
+          "description": "Global sby options, active for every task.",
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "description": "Global sby engines, active for every task.",
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "description": "A verification goal: the contract (all assertions and assumptions) of one module.",
+      "required": [
+        "module"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "description": "Name of the module to analyze. It must exist after the header commands have run.",
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "name": {
+          "description": "Optional label for logs and error messages; has no semantic effect.",
+          "$ref": "#/$defs/nullableString"
+        },
+        "tactic": {
+          "description": "How to decompose the goal. Omit it (or use null) to prove the goal directly.",
+          "$ref": "#/$defs/nullableTactic"
+        },
+        "options": {
+          "description": "sby options for this goal.",
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "description": "sby engines for this goal.",
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      }
+    },
+    "instance": {
+      "type": "object",
+      "description": "A module instance taking part in an assume-guarantee decomposition.",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Name of the instance cell (or of its module).",
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "tactic": {
+          "description": "Tactic used to prove this instance's verification condition. Omit it (or use null) to prove that VC directly.",
+          "$ref": "#/$defs/nullableTactic"
+        }
+      }
+    },
+    "tactic": {
+      "description": "One of the supported tactics, selected by its \"name\" field.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/noneTactic"
+        },
+        {
+          "$ref": "#/$defs/assumeGuaranteeTactic"
+        },
+        {
+          "$ref": "#/$defs/inductiveAssumeGuaranteeTactic"
+        },
+        {
+          "$ref": "#/$defs/abstractTactic"
+        },
+        {
+          "$ref": "#/$defs/splitTactic"
+        }
+      ]
+    },
+    "nullableTactic": {
+      "description": "An optional tactic; an explicit null is accepted and treated as absent.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/tactic"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "noneTactic": {
+      "type": "object",
+      "description": "No decomposition. Useful to set options and engines for a verification condition without splitting it further.",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "none"
+        },
+        "options": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      }
+    },
+    "assumeGuaranteeTactic": {
+      "type": "object",
+      "description": "Acyclic assume-guarantee decomposition over the module's submodule instances. It may not appear anywhere inside the subtree of another assume-guarantee tactic; prove such a sub-goal separately as a subgoal.",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "assume_guarantee"
+        },
+        "auto": {
+          "type": "boolean",
+          "default": true,
+          "description": "Compute the instance order automatically (true, the default) or take it from 'instances' (false)."
+        },
+        "instances": {
+          "type": "array",
+          "description": "Instances taking part in the decomposition, and their order when 'auto' is false. Required (and non-empty) when 'auto' is false, where every instance not listed is inlined. Names must be pairwise distinct.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/instance"
+          }
+        },
+        "inline": {
+          "type": "array",
+          "description": "Instances to inline. Only allowed when 'instances' is absent and 'auto' is true; every other instance then takes part in the decomposition. Names must be pairwise distinct.",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "tactic": {
+          "description": "Tactic used to prove the main verification condition of this goal.",
+          "$ref": "#/$defs/nullableTactic"
+        },
+        "options": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      },
+      "allOf": [
+        {
+          "description": "'inline' and 'instances' are mutually exclusive.",
+          "not": {
+            "required": [
+              "inline",
+              "instances"
+            ]
+          }
+        },
+        {
+          "description": "'inline' requires automatic ordering.",
+          "if": {
+            "required": [
+              "inline"
+            ]
+          },
+          "then": {
+            "properties": {
+              "auto": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "description": "Manual ordering requires an explicit 'instances' order.",
+          "if": {
+            "required": [
+              "auto"
+            ],
+            "properties": {
+              "auto": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "instances"
+            ]
+          }
+        }
+      ]
+    },
+    "inductiveAssumeGuaranteeTactic": {
+      "type": "object",
+      "description": "Assume-guarantee decomposition for apparently circular reasoning: each instance's assumptions are proven at time t assuming the other modules' assertions up to t-1. Structurally identical to assume_guarantee and subject to the same nesting rule, but it may only be used in automatic mode and requires the top-level 'assume_early' field to be false.",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "inductive_assume_guarantee"
+        },
+        "auto": {
+          "const": true,
+          "description": "The inductive variant must run in automatic mode; the field may be omitted."
+        },
+        "instances": {
+          "type": "array",
+          "description": "Instances taking part in the decomposition. Names must be pairwise distinct.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/instance"
+          }
+        },
+        "tactic": {
+          "description": "Tactic used to prove the main verification condition of this goal.",
+          "$ref": "#/$defs/nullableTactic"
+        },
+        "options": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      }
+    },
+    "abstractTactic": {
+      "type": "object",
+      "description": "Apply user-defined abstraction commands, then optionally continue with another tactic.",
+      "required": [
+        "name",
+        "commands"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "abstract"
+        },
+        "commands": {
+          "type": "array",
+          "description": "Yosys commands to add to the generated sby script. Each must start with 'abstract' or 'cutpoint'.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(abstract|cutpoint)"
+          }
+        },
+        "tactic": {
+          "description": "Tactic applied after the commands. Omit it (or use null) to prove the result directly.",
+          "$ref": "#/$defs/nullableTactic"
+        },
+        "options": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      }
+    },
+    "splitTactic": {
+      "type": "object",
+      "description": "Case split on a width-1 wire of the module owning the verification condition.",
+      "required": [
+        "name",
+        "split_wire"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "split"
+        },
+        "split_wire": {
+          "description": "Expression to split on, evaluated in the module owning the verification condition.",
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "case_false": {
+          "description": "Tactic for the branch where 'split_wire' is false. Omit it (or use null) to prove that branch directly.",
+          "$ref": "#/$defs/nullableTactic"
+        },
+        "case_true": {
+          "description": "Tactic for the branch where 'split_wire' is true. Omit it (or use null) to prove that branch directly.",
+          "$ref": "#/$defs/nullableTactic"
+        },
+        "options": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "engines": {
+          "$ref": "#/$defs/nullableStringArray"
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 {
+  "$schema": "../proof_strategy.schema.json",
   "proof_strategy": {
     "header": [
       "read_verilog -sv ag_w_asserts.sv"
@@ -10,18 +11,18 @@
       "module": "main",
       "tactic": {
         "name": "assume_guarantee",
-        "submodules": [
-          {
-            "module": "subm"
-          }
-        ],
         "instances": [
-          "s1",
-          "intermediate_assert1",
-          "intermediate_assert2"
+          {
+            "name": "s1"
+          },
+          {
+            "name": "intermediate_assert1"
+          },
+          {
+            "name": "intermediate_assert2"
+          }
         ]
       }
-    },
-    "subgoals": []
+    }
   }
 }

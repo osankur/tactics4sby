@@ -33,7 +33,6 @@ class SbyGenerator:
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
-        print(f"early: {self.strategy.assume_early}")
         if not self.strategy.assume_early:
             toplevel_options.append("assume_early off")
         self._goal_list.put(self.strategy.goal)
