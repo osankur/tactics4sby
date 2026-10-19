@@ -33,6 +33,9 @@ class SbyGenerator:
         toplevel_options = list(self.strategy.options)
         if self.strategy.multiclock:
             toplevel_options.append("multiclock on")
+        print(f"early: {self.strategy.assume_early}")
+        if not self.strategy.assume_early:
+            toplevel_options.append("assume_early off")
         self._goal_list.put(self.strategy.goal)
         while not self._goal_list.empty():
             goal = self._goal_list.get()
@@ -350,32 +353,67 @@ class SbyGenerator:
                         "chformal -remove -assume -assert a:_ag_vc_flattened=1 a:_ag_vc_top=1 %u %n",
                     ]
                 )
-                # remove previous instances' assumptions, and assume their assertions
-                for prev_cell in previous_cells:
+                if not isinstance(tactic, parser.InductiveAssumeGuaranteeTactic):
+                    # remove previous instances' assumptions, and assume their assertions
+                    for prev_cell in previous_cells:
+                        inst_ag_script.extend(
+                            [
+                                f"chformal -assume -remove {_subcell_names_of_cell(prev_cell)}",
+                                f"chformal -assert -assert2assume {_subcell_names_of_cell(prev_cell)}",
+                            ]
+                        )
                     inst_ag_script.extend(
                         [
-                            f"chformal -assume -remove {_subcell_names_of_cell(prev_cell)}",
-                            f"chformal -assert -assert2assume {_subcell_names_of_cell(prev_cell)}",
+                            "# Remove current goal's assert, and prove its assume",
+                            f"chformal -remove -assert {_subcell_names_of_cell(cell)}",
+                            f"chformal -assume -assume2assert {_subcell_names_of_cell(cell)} # vc goal",
                         ]
                     )
-                inst_ag_script.extend(
-                    [
-                        "# Remove current goal's assert, and prove its assume",
-                        f"chformal -remove -assert {_subcell_names_of_cell(cell)}",
-                        f"chformal -assume -assume2assert {_subcell_names_of_cell(cell)} # vc goal",
-                    ]
-                )
-                # remove next cells' assumptions and assertions
-                for next_cell in next_cells:
-                    inst_ag_script.append(
-                        f"chformal -assert -assume -remove {_subcell_names_of_cell(next_cell)}"
+                    # remove next cells' assumptions and assertions
+                    for next_cell in next_cells:
+                        inst_ag_script.append(
+                            f"chformal -assert -assume -remove {_subcell_names_of_cell(next_cell)}"
+                        )
+                else:
+                    # The following is needed to apply delay to assumes
+                    if self.strategy.multiclock:
+                        inst_ag_script.append("clk2fflogic")
+                    else:
+                        inst_ag_script.append("async2sync")
+                    inst_ag_script.extend(
+                        [
+                            f"# Switch assume and asserts in goal cell {cell.name}",
+                            f"chformal -assume -assert -assume2assert -assert2assume {_subcell_names_of_cell(cell)} # vc goal",
+                            f"log Delaying assumptions of cell {cell.name}",
+                            f"select t:$assume {_subcell_names_of_cell(cell)} %i -list",
+                            f"chformal -assume -delay 1 {_subcell_names_of_cell(cell)}",
+                        ]
                     )
+                    # Remove all other instances' assumptions, convert all instances' assertions to assumes and delay them
+                    for other_cell in ordered_instances:
+                        if cell != other_cell:
+                            inst_ag_script.extend(
+                                [
+                                    f"# Remove non-goal instance {other_cell.name}'s assumptions",
+                                    f"chformal -assume -remove {_subcell_names_of_cell(other_cell)}",
+                                ]
+                            )
+                            inst_ag_script.extend(
+                                [
+                                    f"# Assume assertions of cell {other_cell.name} with delay 1",
+                                    f"chformal -assert -assert2assume {_subcell_names_of_cell(other_cell)}",
+                                    f"chformal -assume -delay 1 {_subcell_names_of_cell(other_cell)}",
+                                    f"log Delaying assumptions of cell {other_cell.name}",
+                                    f"select t:$assume {_subcell_names_of_cell(other_cell)} %i -list",
+                                ]
+                            )
+
                 inst_ag_script.extend(
                     [
                         "log Remaining assumes for this VC:",
-                        "select r:FLAVOR=assume -list",
+                        "select r:FLAVOR=assume t:$assume %u -list",
                         "log Remaining asserts for this VC:",
-                        "select r:FLAVOR=assert -list",
+                        "select r:FLAVOR=assert t:$assert %u -list",
                     ]
                 )
                 subvc = self.process_tactic(
@@ -487,11 +525,6 @@ class SbyGenerator:
                 "chformal -remove -cover -live",
             ]
         )
-        if self.strategy.early_assert or self.strategy.early_assume:
-            goal_script.append(
-                "chformal -early -assert "
-                + ("-assume" if self.strategy.early_assume else "")
-            )
         if goal.name:
             vc_path = self._get_task_or_group_name(goal.name)
         else:

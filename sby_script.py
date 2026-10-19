@@ -168,7 +168,7 @@ class SbyScript:
                     traverse(subvc, next_parent_groups, options, engines)
 
         for vc in self.vcs:
-            traverse(vc, [], self.options, self.engines)
+            traverse(vc, [], [], [])
 
         def print_section(name: str, content: list[str]):
             print(f"[{name}]", file=f)

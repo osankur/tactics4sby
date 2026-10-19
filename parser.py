@@ -192,8 +192,7 @@ class ProofStrategy:
     json_path: str = field(default="", compare=False)
     multiclock: bool = False
 
-    early_assume: bool = False
-    early_assert: bool = False
+    assume_early: bool = True
     options: tuple[str, ...] = field(default=(), compare=False)
     engines: tuple[str, ...] = field(default=(), compare=False)
 
@@ -212,8 +211,7 @@ _GOAL_OPTIONAL = (
 _PROOF_STRATEGY_REQUIRED = ("header", "files", "goal")
 _PROOF_STRATEGY_OPTIONAL = (
     "subgoals",
-    "early-assume",
-    "early-assert",
+    "assume_early",
     "options",
     "engines",
 )
@@ -490,6 +488,10 @@ class _Parser:
             if name == "inductive_assume_guarantee"
             else AssumeGuaranteeTactic
         )
+        if cls == InductiveAssumeGuaranteeTactic and not auto:
+            raise ProofStrategyError(
+                f"{path}: inductive_assume_guarantee tactic must be in auto mode"
+            )
         return cls(
             auto=auto,
             instances=instances,
@@ -537,20 +539,12 @@ class _Parser:
         )
         header = self._string_list(ps["header"], "proof_strategy.header")
         files = self._string_list(ps["files"], "proof_strategy.files")
-        early_assume = (
-            self._bool(ps["early-assume"], "proof_strategy.early-assume")
-            if "early-assume" in ps
-            else False
+        assume_early = (
+            self._bool(ps["assume_early"], "proof_strategy.assume_early")
+            if "assume_early" in ps
+            else True
         )
-        early_assert = (
-            self._bool(ps["early-assert"], "proof_strategy.early-assert")
-            if "early-assert" in ps
-            else False
-        )
-        if early_assume and not early_assert:
-            self._err(
-                "proof_strategy", "'early-assume' requires 'early-assert' to be true"
-            )
+        print(f"Parsing assume_early: {'assume_early' in ps}")
         goal = self.goal(ps["goal"], "proof_strategy.goal")
         if "subgoals" in ps:
             if not isinstance(ps["subgoals"], list):
@@ -569,8 +563,7 @@ class _Parser:
             files=files,
             goal=goal,
             subgoals=subgoals,
-            early_assume=early_assume,
-            early_assert=early_assert,
+            assume_early=assume_early,
             options=self._optional_string_list(ps, "options", "proof_strategy", ()),
             engines=self._optional_string_list(ps, "engines", "proof_strategy", ()),
             source=source,
@@ -670,10 +663,8 @@ def _describe_goal(
     """Append an indented rendering of ``goal`` (and its tactic)."""
     pad = "  " * indent
     flags: list[str] = []
-    if strategy.early_assume:
-        flags.append("early-assume")
-    if strategy.early_assert:
-        flags.append("early-assert")
+    if strategy.assume_early:
+        flags.append("assume_early")
     suffix = f" [{', '.join(flags)}]" if flags else ""
     label = f"{goal.name!r} " if goal.name else ""
     lines.append(f"{pad}- {label}module={goal.module}{suffix}")

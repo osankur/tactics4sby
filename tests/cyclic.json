@@ -6,8 +6,7 @@
     "files": [
       "cyclic.sv"
     ],
-    "early-assume": true,
-    "early-assert": true,
+    "assume_early": true,
     "goal": {
       "module": "main",
       "tactic": {

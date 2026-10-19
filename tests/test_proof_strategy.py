@@ -90,8 +90,6 @@ def test_leaf_goal():
 
     goal = result.goal
     assert goal == Goal(module="main", tactic=None)
-    assert not result.early_assume
-    assert not result.early_assert
 
 
 def test_defaults_are_none():
@@ -237,41 +235,6 @@ def test_json_path_excluded_from_equality():
 def test_parsed_strategy_json_path_is_document_root():
     result = parse_string(strategy([{"module": "main"}]))
     assert result.json_path == "proof_strategy"
-
-
-# --------------------------------------------------------------------------- #
-# early flags
-# --------------------------------------------------------------------------- #
-
-
-def test_early_flags_must_be_booleans():
-    with pytest.raises(ProofStrategyError, match="expected a boolean"):
-        parse_string(strategy([], {"early-assert": "yes"}))
-
-
-def test_early_assume_requires_early_assert():
-    with pytest.raises(ProofStrategyError, match="requires 'early-assert'"):
-        parse_string(strategy([], {"early-assume": True}))
-    # the converse is fine: early-assert alone is legal
-    result = parse_string(strategy([], {"early-assert": True}))
-    assert result.early_assert and not result.early_assume
-
-
-def test_early_flags_are_strategy_wide_and_rejected_on_goals():
-    result = parse_string(strategy([{"module": "t"}], {"early-assert": True}))
-    assert result.early_assert
-    with pytest.raises(ProofStrategyError, match="unknown key"):
-        parse_string(strategy([{"module": "t", "early-assert": True}]))
-
-
-def test_unknown_key_is_rejected():
-    with pytest.raises(ProofStrategyError, match="unknown key"):
-        parse_string(strategy([{"module": "t", "assertios": ["a"]}]))
-
-
-def test_missing_top_is_rejected():
-    with pytest.raises(ProofStrategyError, match="missing required key"):
-        parse_string(strategy([{"name": "x"}]))
 
 
 # --------------------------------------------------------------------------- #
@@ -495,93 +458,6 @@ def test_inline_names_must_be_strings():
 
 
 # --------------------------------------------------------------------------- #
-# strategy-wide early flags
-# --------------------------------------------------------------------------- #
-
-
-def test_instance_tactics_do_not_store_strategy_early_flags():
-    result = parse_string(
-        strategy(
-            [
-                {
-                    "module": "main",
-                    "tactic": ag(
-                        instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
-                    ),
-                }
-            ],
-            {"early-assert": True, "early-assume": True},
-        )
-    )
-    assert result.early_assume and result.early_assert
-    goal = result.goal
-    tactic = goal.tactic
-    assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.instances
-    nested = tactic.instances[0].tactic
-    assert isinstance(nested, AssumeGuaranteeTactic)
-    assert nested.instances == (Instance(name="s2"),)
-
-
-def test_early_flags_are_not_tactic_fields():
-    result = parse_string(
-        strategy(
-            [
-                {
-                    "module": "main",
-                    "tactic": ag(
-                        instances=[inst("s1", tactic=ag(instances=[inst("s2")]))]
-                    ),
-                }
-            ],
-            {"early-assert": True},
-        )
-    )
-    goal = result.goal
-    tactic = goal.tactic
-    assert isinstance(tactic, AssumeGuaranteeTactic)
-    assert tactic.instances
-    nested = tactic.instances[0].tactic
-    assert isinstance(nested, AssumeGuaranteeTactic)
-    assert nested.instances == (Instance(name="s2"),)
-
-
-def test_strategy_early_flags_apply_independently_of_split_cases():
-    result = parse_string(
-        strategy(
-            [
-                {
-                    "module": "main",
-                    "tactic": split("x", case_true=ag(instances=[inst("s1")])),
-                }
-            ],
-            {"early-assert": True},
-        )
-    )
-    assert result.early_assert and not result.early_assume
-    goal = result.goal
-    tactic = goal.tactic
-    assert isinstance(tactic, SplitTactic)
-    assert isinstance(tactic.case_true, AssumeGuaranteeTactic)
-    assert tactic.case_true.instances == (Instance(name="s1"),)
-
-
-def test_early_flags_are_rejected_on_tactics():
-    # Early flags are strategy-level only; tactics reject them.
-    with pytest.raises(ProofStrategyError, match="unknown key"):
-        parse_string(
-            strategy(
-                [
-                    {
-                        "module": "main",
-                        "tactic": ag(early_assert=True),
-                    }
-                ]
-            )
-        )
-
-
-# --------------------------------------------------------------------------- #
 # split tactic
 # --------------------------------------------------------------------------- #
 
@@ -753,7 +629,7 @@ def test_inductive_assume_guarantee_has_the_same_fields():
                 {
                     "module": "t",
                     "tactic": iag(
-                        auto=False,
+                        auto=True,
                         instances=[inst("s1")],
                         tactic=abstract("abstract -value w"),
                     ),
@@ -763,7 +639,7 @@ def test_inductive_assume_guarantee_has_the_same_fields():
     )
     tactic = result.goal.tactic
     assert isinstance(tactic, InductiveAssumeGuaranteeTactic)
-    assert tactic.auto is False
+    assert tactic.auto
     assert tactic.tactic == AbstractTactic(commands=("abstract -value w",))
 
 

@@ -10,7 +10,7 @@ At the top level, a `proof_strategy` object describes the design under verificat
 - `top`, a mandatory string naming the top module to be considered when synthesizing the design for any of the goals.
 - `goal`, a mandatory `goal` object describing the main goal to be proved.
 - `subgoals`, a mandatory list of `goal` objects describing additional goals that are required to prove the main goal. This list can be empty.
-- Optional `early-assume` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `early-assume` is true then `early-assert` must be true as well. These are strategy-wide flags.
+- Optional `assume_early` and `early-assert` Boolean fields (both default to `false`), which determine whether assume and assert cells inside processes must be activated in the initial step or delayed by one step. If `assume_early` is true then `early-assert` must be true as well. These are strategy-wide flags.
 - Optional `options` and `engines` lists of strings. They default to `["mode prove"]` and `["smtbmc"]`.
 
 Each goal is given by the following fields:
