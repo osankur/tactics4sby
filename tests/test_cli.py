@@ -20,16 +20,17 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = REPO_ROOT / "tests"
 AG4SBY = REPO_ROOT / "tactics4sby.py"
-
-PARAM_STRATEGIES = ["strategy0", "strategy2"]
-OTHER_STRATEGIES = [
+PARAM_TEST_STRATEGIES = ["strategy0", "strategy2"]
+OTHER_TEST_STRATEGIES = [
     "cyclic",
+    "cyclic_inductive",
     "strategy1",
     "strategy3",
     "strategy_err1",
     "strategy_err2",
     "ag_w_asserts",
     "ag_w_asserts_err0",
+    "nested",
 ]
 
 
@@ -78,14 +79,15 @@ def workdir(tmp_path: Path) -> Path:
         "sample3.sv",
         "cyclic.sv",
         "ag_w_asserts.sv",
+        "cyclic_inductive.sv",
     ):
         shutil.copy(TESTS_DIR / name, tmp_path / name)
-    for name in PARAM_STRATEGIES + OTHER_STRATEGIES:
+    for name in PARAM_TEST_STRATEGIES + OTHER_TEST_STRATEGIES:
         shutil.copy(TESTS_DIR / f"{name}.json", tmp_path / f"{name}.json")
     return tmp_path
 
 
-@pytest.mark.parametrize("name", PARAM_STRATEGIES)
+@pytest.mark.parametrize("name", PARAM_TEST_STRATEGIES)
 def test_cli_output_is_deterministic(workdir: Path, name: str):
     """Running the tool twice produces byte-identical output."""
     assert run_main_program("-f", f"{name}.json", cwd=workdir).returncode == 0
@@ -199,7 +201,6 @@ def test_cli_cyclic_dep_graph(workdir: Path):
     # The dependency graph is logged at debug level, so run with -vv.
     result = run_main_program("-vv", "-f", "cyclic.json", cwd=workdir)
     assert result.returncode == 0
-    print(result.stderr)
     dep_graph = """
 \\s1 depends on:
 \t\\s2
@@ -261,3 +262,26 @@ main/top_property1
         encoding="utf-8"
     )
     assert pattern in design_log
+
+
+def test_cli_iag(workdir: Path):
+    result = run_main_program("-f", "cyclic_inductive.json", cwd=workdir)
+    assert result.returncode == 0
+    pattern = r"""Remaining assumes for this VC:
+main/s2.subm_assert1
+main/s1.subm_assert1
+main/top_assume
+Remaining asserts for this VC:
+main/top_assert
+
+"""
+    design_log = (
+        workdir / "cyclic_inductive__vc_main_ag_top/model/design.log"
+    ).read_text(encoding="utf-8")
+    assert pattern in design_log
+
+
+def test_cli_abstract(workdir: Path):
+    result = run_main_program("-f", "nested.json", cwd=workdir)
+    assert result.returncode == 0
+    "_vc_main_abs_ag_s1_abs" in result.stdout

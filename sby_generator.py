@@ -379,10 +379,8 @@ class SbyGenerator:
                         inst_ag_script.append("clk2fflogic")
                     else:
                         inst_ag_script.append("async2sync")
-                    if self.strategy.assume_early:
-                        assume_delay = 2
-                    else:
-                        assume_delay = 1
+                    assert not self.strategy.assume_early
+                    assume_delay = 1
                     inst_ag_script.extend(
                         [
                             f"# Switch assume and asserts in goal cell {cell.name}",
@@ -441,10 +439,9 @@ class SbyGenerator:
                 pre_script,
             )
         elif isinstance(tactic, parser.AbstractTactic):
-            # from local wire names to global wire names
             child_tactic = self.process_tactic(
                 tactic.tactic,
-                f"{vc_path}_cp",
+                f"{vc_path}_abs",
                 list(tactic.commands),
                 cg,
                 parent_goal,
@@ -519,7 +516,9 @@ class SbyGenerator:
             self.strategy.multiclock,
             self.cfg,
         )
-
+        assert ensure_backslash(goal.module) in cg, (
+            f"{goal.json_path} Module {goal.module} not found"
+        )
         goal_script = [line for line in self.strategy.header]
         goal_script.extend(
             [

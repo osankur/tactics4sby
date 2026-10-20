@@ -115,7 +115,6 @@ def make_model(
 ) -> ys.Design:
     modeldir = Path(cfg.tmpdir) / "model"
     modeldir.mkdir(exist_ok=True)
-
     with open(modeldir / f"{strip_backslash(top)}.ys", "w") as f:
         for cmd in read_commands:
             print(cmd, file=f)

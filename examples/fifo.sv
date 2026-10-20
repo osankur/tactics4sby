@@ -146,14 +146,16 @@ module fifo #(
       ) || empty || count == prev_data_count - 1 && ~full);
 
       // After rst, both count and prev_data_count are 0
-      assert (~$past(rst) || count == 0 && prev_data_count == 0);
+      fifo_after_rst : assert (~$past(rst) || count == 0 && prev_data_count == 0);
       // ~init /\ ~$post(wen) /\ ~$past(ren) /\ ~$past(rst) -> count == prev_data_count
+      fifo_unchanged_when_no_wen_no_ren :
       assert (init || $past(wen) || $past(ren) || $past(rst) || count == prev_data_count);
       // count is unchanged when both wen and ren are asserted
       // ~init /\ ~$past(rst) /\ $post(wen) /\ $past(ren)  -> count == $past(count)
+      fifo_unchanged_when_wen_and_ren :
       assert (init || $past(rst) || !($past(wen) && $past(ren)) || count == $past(count));
       // empty <-> count == 0
-      fifo_empt1 : assert ((~empty || count == 0) && (count != 0 || empty));
+      fifo_empty1 : assert ((~empty || count == 0) && (count != 0 || empty));
     end
   end
 `endif

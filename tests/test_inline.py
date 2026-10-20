@@ -1,6 +1,7 @@
 from __future__ import annotations
 import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,99 @@ module subm (input clk, input logic [3:0] x, output logic [3:0] y);
   always_comb begin
     subm_assume1 : assume (x > 0);
     y = x;
+  end
+endmodule
+"""
+
+PARAM_SV = """\
+module main (
+    clk,
+    x,
+    y
+);
+  input clk;
+  input logic [4:0] x;
+  output logic [4:0] y;
+  subm #(
+      .A(4)
+  ) s1 (
+      .clk(clk),
+      .x  (x),
+      .y  (y)
+  );
+  always_comb begin
+    top_assume : assume (x > 0);
+    top_assert : assert (y >= 2);
+  end
+endmodule
+
+module subm #(
+    parameter A = 4
+) (
+    input clk,
+    input logic [A:0] x,
+    output logic [A:0] y
+);
+  subsubm #(
+      .A(A),
+      .B(A)
+  ) ss2 (
+      .clk(clk),
+      .x  (x),
+      .y  (y)
+  );
+  always_comb begin
+    subm_assume1 : assume (x > 0);
+    subm_assert1 : assert (y >= 2);
+  end
+endmodule
+
+
+module subsubm #(
+    parameter A = 4,
+    parameter B = 4
+) (
+    input clk,
+    input logic [A:0] x,
+    output logic [B:0] y
+);
+  always_comb begin
+    subsubm_assume1 : assume (x > 0);
+    subsubm_assert1 : assert (y >= 2);
+    y = (x > 2) ? x : 5'd2;
+  end
+endmodule
+"""
+
+NAMECLASH_SV = """\
+module _main (
+    clk,
+    x,
+    y
+);
+  input clk;
+  input logic [4:0] x;
+  output logic [4:0] y;
+  main_ag_top s1 (
+      .clk(clk),
+      .x  (x),
+      .y  (y)
+  );
+  always_comb begin
+    top_assume : assume (x > 0);
+    top_assert : assert (y >= 2);
+  end
+endmodule
+
+module main_ag_top (
+    input clk,
+    input logic [4:0] x,
+    output logic [4:0] y
+);
+  always_comb begin
+    subm_assume1 : assume (x > 0);
+    subm_assert1 : assert (y >= 2);
+    y = (x < 13) ? x + 2 : 2;
   end
 endmodule
 """
@@ -142,7 +236,6 @@ _vc_main_split1: smtbmc
     sby = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
     sby.dump(buf)
     output = buf.getvalue()
-    print(output)
     assert script in output
     assert options_and_engines in output
 
@@ -229,3 +322,131 @@ def test_split(make_design, monkeypatch):
     with open(sby_file, "w") as f:
         sby.dump(f)
     assert sby.run(None) == 0
+
+
+def test_parameterized_modules(make_design, monkeypatch):
+    cfg = make_design(PARAM_SV)
+    monkeypatch.chdir(cfg.basedir)
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {"module": "main", "tactic": {"name": "assume_guarantee"}},
+                "subgoals": [
+                    {"module": "subm", "tactic": {"name": "assume_guarantee"}}
+                ],
+            }
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby_script = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    vc_tree_string = str(sby_script)
+    assert (
+        "_vc__paramod_subm_A=s32_00000000000000000000000000000100_ag_top"
+        in vc_tree_string
+    )
+    assert (
+        "_vc__paramod_subm_A=s32_00000000000000000000000000000100_ag_ss2"
+        in vc_tree_string
+    )
+    paramod_pat = r".*_vc__paramod_[0-9a-f]+_subsubm.*"
+    assert re.search(paramod_pat, vc_tree_string)
+    with open(sby_file, "w") as f:
+        sby_script.dump(f)
+    assert sby_script.run(None) == 0
+
+
+def test_vc_in_module_name(make_design, monkeypatch):
+    cfg = make_design(NAMECLASH_SV)
+    monkeypatch.chdir(cfg.basedir)
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {"module": "_main", "tactic": {"name": "assume_guarantee"}},
+                "subgoals": [
+                    {"module": "main_ag_top", "tactic": {"name": "assume_guarantee"}}
+                ],
+            }
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby_script = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    vc_tree_string = str(sby_script)
+    assert "_vc__main_ag_top_0_ag_top" in vc_tree_string
+    assert "_vc__main_ag_top_0" in vc_tree_string
+    assert "_vc__main_ag_s1" in vc_tree_string
+    assert "_vc__main_ag_top" in vc_tree_string
+
+
+def test_ag_with_inline(make_design, monkeypatch):
+    cfg = make_design(CHAIN_SV)
+    monkeypatch.chdir(cfg.basedir)
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {
+                    "module": "main",
+                    "tactic": {"name": "assume_guarantee", "inline": ["s1"]},
+                },
+            },
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby_script = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    vc_tree_string = str(sby_script)
+    assert "_vc_main_ag_s2" in vc_tree_string
+    assert "_vc_main_ag_s1" not in vc_tree_string
+
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {
+                    "module": "main",
+                    "tactic": {"name": "assume_guarantee", "inline": ["subm"]},
+                },
+            },
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby_script = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    vc_tree_string = str(sby_script)
+    assert "_vc_main_ag_s2" not in vc_tree_string
+    assert "_vc_main_ag_s1" not in vc_tree_string
+
+
+def test_failing_abstract(make_design, monkeypatch):
+    cfg = make_design(NAMECLASH_SV)
+    monkeypatch.chdir(cfg.basedir)
+    strategy_json = json.dumps(
+        {
+            "proof_strategy": {
+                "header": ["read_verilog -sv design.sv"],
+                "files": ["design.sv"],
+                "goal": {
+                    "module": "main_ag_top",
+                    "tactic": {
+                        "name": "abstract",
+                        "commands": ["abstract -value main_ag_top/y"],
+                    },
+                },
+            }
+        }
+    )
+    strategy = parse_string(strategy_json)
+    sby_file = cfg.basedir / "dummy.sby"
+    sby_script = sby_generator.SbyGenerator(strategy, cfg).get_sby_script(sby_file)
+    with open(sby_file, "w") as f:
+        sby_script.dump(f)
+    sby_script.run()
+    assert cfg.basedir / "dummy__vc_main_ag_top_abs" / "FAIL"
