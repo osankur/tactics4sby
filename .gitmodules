@@ -1,0 +1,4 @@
+[submodule "vendor/yosys"]
+	path = vendor/yosys
+	url = https://github.com/osankur/yosys.git
+	branch = tactics4sby-yosys

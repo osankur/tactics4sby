@@ -90,7 +90,13 @@ exclude_also = [
 # `X | Y` annotations).
 line-length = 88
 target-version = "py312"
+# Vendored Yosys ships its own Python scripts; they are not ours to lint.
+extend-exclude = ["vendor"]
 
 [tool.ruff.lint]
 # Ruff's default rule set, spelled out rather than left implicit.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.ty.src]
+# The Yosys submodule contains Python code that is not part of this project.
+exclude = ["vendor"]

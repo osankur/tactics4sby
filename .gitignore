@@ -24,3 +24,7 @@ examples/*/
 *.vcd
 *.vvp
 examples/*.sby
+
+# Local Yosys build produced by scripts/install_yosys.sh.
+.build/
+.yosys-env
