@@ -388,7 +388,7 @@ class _Parser:
             )
             for index, command in enumerate(commands):
                 command_path = f"{path}.commands[{index}]"
-                if not command.startswith(("abstract", "cutpoint")):
+                if not command.startswith(("abstract", "cutpoint", "select")):
                     self._err(
                         command_path,
                         f"command must start with 'abstract' or 'cutpoint', "

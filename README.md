@@ -1,18 +1,59 @@
 # Tactics4sby
-Tactics4sby is a helper tool that helps structure proof strategies to be used for formal verification of hardware designs
+Tactics4sby is a helper tool that helps structure proof strategies in a reproducible way when applying for formal verification of hardware designs
 with [Yosys](https://github.com/YosysHQ/yosys/)/[sby](https://github.com/YosysHQ/sby/).
 One specifies a set of tactics to be applied to prove a given design. Each tactic generates one or more verification conditions, which can be refined with further tactics.
 
-The supported tactics are the following
-- `abstract`: Abstraction and cutpoint (Yosys `cutpoint` and `abstsract` commands)
+The tool can be seen as a generator for .sby files.
+Given a proof strategy as a .json file, it generates an .sby configuration file which would be error-prone to do manually; it runs `sby`, and reports back the results of the verification condition tree.
+
+```
+                tactics4sby                   sby
++---------------+          +--------------+         +-------------------------+
+| strategy.json | -------> | strategy.sby | ------> | reporting               |
++---------------+          +--------------+         | PASS / FAIL / UNKNOWN   |
+                                                    +-------------------------+
+```
+
+The currently supported tactics are the following
 - `split`: Case splitting on a Boolean value
+- `abstract`: Abstraction and cutpoint (Yosys `cutpoint` and `abstsract` commands)
 - `assume_guarantee`: Assume-guarantee reasoning on submodules and asserts
 - `inductive_assume_guarantee`: Circular assume-guarantee reasoning (with induction over time)
 
-Given a proof strategy as a .json file, the tool generates an .sby configuration file, runs `sby`, and reports back the results of verification condition tree.
+For example, the file below specifies a split tactic producing two verification conditions: one assumes that the wire `x` is true, and the second one assumes that it is false.
+```json
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv design.sv"
+    ],
+    "files": [
+      "design.sv"
+    ],
+    "goal": {
+      "module": "top",
+      "tactic": {
+        "name": "split",
+        "split_wire": "x"
+      }
+    }
+  }
+}
+```
 
+Below is an example of reporting where the first case succeeds and the other one fails:
 
-See [docs/getting_started.md](docs/getting_started.md) for examples of usage and details on these tactics.
+```sh
+┌┬[❌] _vc_top (by SplitTactic)
+│├─ [✅] _vc_top_split0
+││     sby logs: design__vc_top_split0
+│└─ [❌] _vc_top_split1
+│      sby logs: design__vc_top_split1
+│    failing ASSERT: top._witness_.check_assert_design_sv_7_2 at design.sv:7.5-7.15
+│    trace: design__vc_top_split1/engine_0/trace.vcd
+```
+
+See [docs/usage.md](docs/usage.md) for more examples of usage and details on these tactics.
 
 ## Installation
 
@@ -53,10 +94,7 @@ If you cloned without `--recurse-submodules`, run
 
 `scripts/install_yosys.sh` builds the pinned Yosys (in `.build/yosys` by
 default) and installs the pyosys bindings into `.venv/bin/python`, or into the
-pipx environment with `--pipx <app>`.  The first run takes tens of minutes:
-the sources are built once for the `yosys` binary and once more for the Python
-bindings.  Later runs finish in seconds unless the submodule commit changes.
-Use `--jobs N` to change the parallelism.
+pipx environment with `--pipx <app>`.  This takes tens of minutes, use `--jobs N` to change the parallelism.
 
 Both variants write `.yosys-env`, which selects the freshly built `yosys` and
 points `sby` at it:
@@ -68,7 +106,3 @@ tactics4sby tests/strategy0.json
 
 Without it the tool uses whichever `yosys` comes first on `PATH`, which may
 not support `add -not`.
-
-pipx installs a copy of the sources, so after changing them reinstall with
-`pipx install --force .`.  In a venv, use
-`.venv/bin/python -m pip install -e .` instead.

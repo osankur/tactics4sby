@@ -1,5 +1,6 @@
 // -- This file was copied and modified from the sby repository at https://github.com/yosysHQ/sby
 // -- (see docs/examples/fifo.sv)
+// -- The only modifications are in the assertions, under the `ifdef FORMAL macro.
 // --
 // -- SymbiYosys (sby) -- Front-end for Yosys-based formal verification flows
 // --
@@ -113,9 +114,11 @@ module fifo #(
   assign rskip = 0;
   assign wskip = 0;
 `endif  // NO_FULL_SKIP
-`ifdef _AG_
+`ifdef FORMAL
   logic [4:0] prev_data_count;
   logic [2:0] init;
+  (*keep*) logic proof_case1 = wdata > 0;
+  (*keep*) logic proof_case2 = wdata > 10;
   initial prev_data_count = 0;
   initial init = 1;
   always @(posedge clk) begin

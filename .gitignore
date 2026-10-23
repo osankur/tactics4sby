@@ -13,8 +13,7 @@ dist/
 *.dot
 a.out
 .vscode
-tests/tmp*
-tests/strategy*/*
+tests/*/*
 *,cover
 *.lcov
 uv.lock
@@ -28,3 +27,6 @@ examples/*.sby
 # Local Yosys build produced by scripts/install_yosys.sh.
 .build/
 .yosys-env
+tmp/*
+docs/examples/*/
+docs/examples/*.sby
