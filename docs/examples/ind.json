@@ -1,0 +1,23 @@
+{
+  "$schema": "../proof_strategy.schema.json",
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv ind.sv"
+    ],
+    "files": [
+      "ind.sv"
+    ],
+    "assume_early": false,
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "inductive_assume_guarantee",
+        "instances": [
+          {
+            "name": "subm"
+          }
+        ]
+      }
+    }
+  }
+}

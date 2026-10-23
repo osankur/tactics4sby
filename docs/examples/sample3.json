@@ -1,0 +1,21 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read -define FORMAL=1",
+      "read_verilog -sv fifo.sv"
+    ],
+    "files": [
+      "fifo.sv"
+    ],
+    "goal": {
+      "module": "fifo",
+      "engines": [
+        "abc pdr"
+      ],
+      "tactic": {
+        "name": "split",
+        "split_wire": "proof_case1"
+      }
+    }
+  }
+}

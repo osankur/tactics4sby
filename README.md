@@ -55,6 +55,8 @@ Below is an example of reporting where the first case succeeds and the other one
 
 See [docs/usage.md](docs/usage.md) for more examples of usage and details on these tactics.
 
+See [docs/input_format.md](docs/input_format.md) for the input format.
+
 ## Installation
 
 The tool relies on two features that are not in upstream Yosys yet: the

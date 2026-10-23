@@ -1,0 +1,17 @@
+{
+  "$schema": "../proof_strategy.schema.json",
+  "proof_strategy": {
+    "header": [
+      "read -define _AG_=1",
+      "read_verilog -sv fifo.sv",
+      "read_verilog -sv protocol.sv"
+    ],
+    "files": [
+      "fifo.sv",
+      "protocol.sv"
+    ],
+    "goal": {
+      "module": "protocol"
+    }
+  }
+}

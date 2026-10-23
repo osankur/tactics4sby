@@ -1,0 +1,38 @@
+  {
+    "proof_strategy": {
+      "header": [
+        "read -define FORMAL=1",
+        "read_verilog -sv fifo.sv",
+        "read_verilog -sv sender_receiver.sv"
+      ],
+      "files": [
+        "fifo.sv",
+        "sender_receiver.sv"
+      ],
+      "goal": {
+        "module": "protocol",
+        "tactic": {
+          "name": "assume_guarantee",
+          "instances": [
+            {
+              "name": "receiver",
+              "tactic": {
+                "name": "abstract",
+                "commands": [
+                  "cutpoint r:MEMID=\\data"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "subgoals": [
+        {
+          "module": "fifo",
+          "engines": [
+            "abc pdr"
+          ]
+        }
+      ]
+    }
+  }

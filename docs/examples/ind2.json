@@ -1,0 +1,22 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv ind2.sv"
+    ],
+    "files": [
+      "ind2.sv"
+    ],
+    "assume_early": false,
+    "goal": {
+      "module": "main",
+      "tactic": {
+        "name": "inductive_assume_guarantee",
+        "instances": [
+          {
+            "name": "subm"
+          }
+        ]
+      }
+    }
+  }
+}
