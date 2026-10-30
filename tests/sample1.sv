@@ -38,7 +38,7 @@ module subm (
 );
   logic [4:0] sx;
   logic [4:0] z;
-  initial z <= 1;
+  initial z = 1;
   always_comb begin
     sx = (x > 2) ? x : 5'd3;
     y  = (sx > z) ? sx : z;

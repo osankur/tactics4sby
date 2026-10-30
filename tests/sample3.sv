@@ -31,7 +31,8 @@ module subm (
     output logic [4:0] y
 );
   initial y = 1;
-  logic split_subm = x[1];
+  logic split_subm;
+  assign split = x[1];
   always_comb begin
     y = (x > 2) ? x : 5'd3;
     subm_assume1 : assume (x & 5'b00001);

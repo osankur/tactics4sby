@@ -39,7 +39,7 @@ module subm (
     output logic [4:0] y
 );
   logic [4:0] z, y1;
-  initial z <= 0;
+  initial z = 0;
   subsubm s3 (
       .clk(clk),
       .x  (x),
@@ -62,7 +62,7 @@ module subsubm (
     output logic [4:0] y
 );
   logic [4:0] z;
-  initial z <= 0;
+  initial z = 0;
   always_comb begin
     subsubm_assume1 : assume (x > 0);
     assert (y >= 2);

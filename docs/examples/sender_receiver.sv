@@ -20,9 +20,9 @@ module protocol (
   logic receiver_full, receiver_empty;
 
   logic [3:0] step;
+  logic [3:0] past_step;
 
   initial begin
-    init = 1;
     state = 0;
     sender_wen = 0;
     sender_ren = 0;
@@ -64,7 +64,6 @@ module protocol (
   );
   always_ff @(posedge clk) begin
     if (rst) begin
-      init <= 1;
       step <= 0;
       past_step <= 0;
       sender_wen <= 0;
@@ -73,7 +72,6 @@ module protocol (
       receiver_ren <= 0;
     end
     if (~rst) begin
-      init <= 0;
       if (state == RECEIVE && step < 4) begin
         receiver_wen <= 1;
         receiver_ren <= 0;

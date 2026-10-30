@@ -11,11 +11,9 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
     raise ModuleNotFoundError(
         "The Yosys Python bindings ('pyosys') are required but were not found.\n"
-        "They are built locally and installed system-wide, so an isolated\n"
-        "environment cannot see them.  Reinstall with access to the system\n"
-        "site packages, e.g.\n"
-        "    pipx install --force --system-site-packages .\n"
-        "or use a venv created with `--system-site-packages`."
+        "Install them into the interpreter that runs the tool:\n"
+        "    scripts/install_yosys.sh --python <venv>/bin/python\n"
+        "    scripts/install_yosys.sh --pipx <app>\n"
     ) from exc
 
 from logger import logger

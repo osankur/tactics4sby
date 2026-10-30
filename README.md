@@ -77,7 +77,7 @@ revision is therefore pinned as the `vendor/yosys` submodule, and the PyPI
 ```sh
 git clone --recurse-submodules git@gitlab.inria.fr:osankur/tactics4sby.git
 cd tactics4sby
-pipx install .
+pipx install --python /usr/bin/python3 .
 scripts/install_yosys.sh --pipx tactics4sby
 ```
 
@@ -86,13 +86,10 @@ scripts/install_yosys.sh --pipx tactics4sby
 ```sh
 git clone --recurse-submodules git@gitlab.inria.fr:osankur/tactics4sby.git
 cd tactics4sby
-python3 -m venv .venv                  # or: uv venv --seed
+python3 -m venv .venv                  # or: uv venv --seed --python /usr/bin/python3
 scripts/install_yosys.sh               # installs pyosys into .venv
 .venv/bin/python -m pip install .
 ```
-
-If you cloned without `--recurse-submodules`, run
-`git submodule update --init --recursive` first.
 
 `scripts/install_yosys.sh` builds the pinned Yosys (in `.build/yosys` by
 default) and installs the pyosys bindings into `.venv/bin/python`, or into the
