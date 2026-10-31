@@ -613,9 +613,7 @@ def test_abstract_commands_must_start_with_abstract_or_cutpoint():
     with pytest.raises(
         ProofStrategyError, match="must start with 'abstract' or 'cutpoint'"
     ):
-        parse_string(
-            strategy([{"module": "t", "tactic": abstract(commands=["select w"])}])
-        )
+        parse_string(strategy([{"module": "t", "tactic": abstract(commands=["prep"])}]))
 
 
 def test_abstract_with_nested_tactic():

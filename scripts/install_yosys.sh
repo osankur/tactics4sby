@@ -9,8 +9,8 @@ usage() {
 Usage: scripts/install_yosys.sh [options]
 
 Options:
-  --python PATH     Interpreter whose environment receives pyosys
-                    (default: .venv/bin/python, else python3)
+  --python PATH     Interpreter of a virtual environment that receives pyosys
+                    (default: .venv/bin/python)
   --pipx APP        Install pyosys into the pipx venv of APP instead
   --build-dir DIR   CMake build directory (default: .build/yosys)
   --jobs N          Parallel build jobs (default: nproc)
@@ -53,6 +53,28 @@ if [ -z "$python" ] && [ -z "$pipx_app" ]; then
         python="$root/.venv/bin/python"
     else
         python=$(command -v python3)
+    fi
+fi
+
+if [ "$install_pyosys" = 1 ] && [ -z "$pipx_app" ]; then
+    if ! "$python" -c 'import sys; raise SystemExit(sys.prefix == sys.base_prefix)' 2>/dev/null; then
+        cat >&2 <<EOF
+$python is not a virtual environment, so pyosys cannot be installed into it
+(PEP 668 blocks system-wide installs).
+
+Create the venv first, then re-run this script:
+
+    python3 -m venv .venv      # on Debian/Ubuntu: apt install python3-venv
+
+Or install into a pipx venv instead:
+
+    pipx install . && scripts/install_yosys.sh --pipx <app>
+EOF
+        exit 2
+    fi
+    if ! "$python" -m pip --version >/dev/null 2>&1; then
+        echo "$python has no pip; create the venv with --seed (uv venv --seed .venv)" >&2
+        exit 2
     fi
 fi
 
