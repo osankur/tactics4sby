@@ -256,6 +256,8 @@ M_i ⊨ A_i -> G_i                              for each i ∈ {1, …, n}   (mo
 M ⊨ A -> P
 ```
 
+A description of this rule and its use with sby (without tactics4sby) can be found on [this blog post](https://osankur.github.io/formal-verification-blog/sby-ag.html).
+
 The example [sender_receiver.json](examples/sender_receiver.json) applies the tactic to the `protocol` module of [sender_receiver.sv](examples/sender_receiver.sv), which instantiates two FIFOs from [fifo.sv](examples/fifo.sv):
 
 ```json
@@ -411,7 +413,10 @@ M ⊨ A, G_1, …, G_n -> P                                                (pare
 M ⊨ A -> P
 ```
 
-> [!NOTE] Here, assume_early must be set to false due to sby that applies `chformal -early -remove` during synthesis. In fact, in order to encode G_i^{t-1}, tactics4sby introduces $ff cells to delay the assumptions, but these are then removed by the above chformal command.
+A description of this rule and its use with sby (without tactics4sby) can be found on [this blog post](https://osankur.github.io/formal-verification-blog/sby-ag.html) (see the circular assume-guarantee rule).
+
+> [!NOTE]
+> Here, assume_early must be set to false due to sby that applies `chformal -early -remove` during synthesis. In fact, in order to encode G_i^{t-1}, tactics4sby introduces $ff cells to delay the assumptions, but these are then removed by the above chformal command.
 
 Consider the following design [ind.sv](ind.sv).
 ```verilog
