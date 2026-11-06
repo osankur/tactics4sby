@@ -1,0 +1,17 @@
+{
+  "proof_strategy": {
+    "header": [
+      "read_verilog -sv split_example.sv"
+    ],
+    "files": [
+      "split_example.sv"
+    ],
+    "goal": {
+      "module": "top",
+      "tactic": {
+        "name": "split",
+        "split_wire": "x"
+      }
+    }
+  }
+}
